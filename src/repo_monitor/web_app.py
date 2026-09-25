@@ -115,6 +115,21 @@ class RepoMonitorService:
             self.store.save(self.config)
         return self.state()
 
+    def add_repository(self, path: str) -> dict[str, object]:
+        candidate = Path(path).expanduser().resolve(strict=False)
+        if not candidate.is_dir() or not (candidate / ".git").exists():
+            raise ValueError("Git repository (.git) not found")
+        with self._lock:
+            self.config = merge_discovered(self.config, [candidate])
+            self.store.save(self.config)
+            repo = self._find_repo_locked(repo_identity(candidate))
+            return {
+                "key": repo_identity(repo.path),
+                "name": repo.name,
+                "path": repo.path,
+                "chat_url": repo.chat_url,
+            }
+
     def set_chat_url(self, repo_key: str, chat_url: str) -> dict[str, object]:
         with self._lock:
             repo = self._find_repo_locked(repo_key)
