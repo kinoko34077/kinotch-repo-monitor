@@ -10,7 +10,7 @@ class RegistryTests(unittest.TestCase):
         merged = merge_discovered(cfg, [Path('C:/new/a'), Path('C:/new/b')])
         by_name = {r.name: r for r in merged.repositories}
         self.assertEqual(by_name['a'].chat_url, 'https://chatgpt.com/c/a')
-        self.assertEqual(by_name['a'].path, 'C:/new/a')
+        self.assertEqual(Path(by_name['a'].path), Path('C:/new/a'))
         self.assertIn('b', by_name)
 
 
