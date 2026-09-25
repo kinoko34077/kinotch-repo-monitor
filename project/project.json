@@ -22,12 +22,12 @@
     "library": false
   },
   "commands": {
-    "setup": "py -3 -m pip install -e .",
+    "setup": "_run_python.cmd -m pip install -e .",
     "dev": "run.cmd",
-    "test": "py -3 -m unittest discover -s tests -v",
-    "build": "py -3 -m compileall -q src",
+    "test": "_run_python.cmd -m unittest discover -s tests -v",
+    "build": "_run_python.cmd -m compileall -q src tests",
     "verify": "verify.cmd",
-    "smoke": "py -3 -m repo_monitor --smoke",
+    "smoke": "run.cmd --smoke",
     "deploy": ""
   },
   "paths": {
@@ -40,6 +40,6 @@
   },
   "notes": [
     "Structured for KiNoTch. Repository Base windows-gui profile.",
-    "Current devflow managed repository names are used only as ordering metadata; local discovery remains authoritative for cards."
+    "Runtime display order is derived only from locally registered/discovered repositories; devflow remains development-control authority and is not embedded into runtime state."
   ]
 }
