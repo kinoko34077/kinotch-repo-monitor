@@ -83,6 +83,25 @@ class WebAppServiceTests(unittest.TestCase):
             service.remove_repository(repo_identity(second))
             self.assertEqual([repo.name for repo in store.load().repositories], ["first"])
 
+    def test_manual_repository_add_validates_git_directory_and_persists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.make_store(root, [])
+            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], inspector=lambda paths, *, max_workers=4: [RepoSnapshot(path=Path(p)) for p in paths])
+            repo = root / "outside" / "manual"
+            (repo / ".git").mkdir(parents=True)
+
+            added = service.add_repository(str(repo))
+
+            self.assertEqual(added["name"], "manual")
+            self.assertEqual(added["key"], repo_identity(repo))
+            persisted = store.load()
+            self.assertEqual(len(persisted.repositories), 1)
+            self.assertEqual(repo_identity(persisted.repositories[0].path), repo_identity(repo))
+
+            with self.assertRaises(ValueError):
+                service.add_repository(str(root / "not-a-repo"))
+
     def test_open_folder_uses_injected_opener_and_rejects_unknown_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
