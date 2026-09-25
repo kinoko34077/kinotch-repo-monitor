@@ -100,6 +100,13 @@ def _handler_for(service: Any, static_dir: Path):
                 if path == "/api/rediscover":
                     self._send_json(HTTPStatus.OK, service.rediscover())
                     return
+                if path == "/api/repos/add":
+                    repo_path = body.get("path")
+                    if not isinstance(repo_path, str) or not repo_path.strip():
+                        self._send_json(HTTPStatus.BAD_REQUEST, {"error": "path string required"})
+                        return
+                    self._send_json(HTTPStatus.OK, service.add_repository(repo_path.strip()))
+                    return
 
                 parts = path.split("/")
                 if len(parts) == 5 and parts[1:3] == ["api", "repos"]:
@@ -123,6 +130,8 @@ def _handler_for(service: Any, static_dir: Path):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             except KeyError:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "repository not found"})
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "action failed"})
 
@@ -152,7 +161,13 @@ def serve(
 ) -> int:
     app = service or RepoMonitorService()
     app.rediscover()
-    server = create_server(host, port, app)
+    try:
+        server = create_server(host, port, app)
+    except OSError:
+        if int(port) == 0:
+            raise
+        print(f"Repo Monitor: port {port} is unavailable; selecting a free loopback port")
+        server = create_server(host, 0, app)
     bound_host, bound_port = server.server_address[:2]
     url = f"http://{bound_host}:{bound_port}/"
     print(f"Repo Monitor: {url}")
