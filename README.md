@@ -9,7 +9,9 @@
 - 色 + 状態名で `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / エラー` を表示
 - branch、short HEAD、変更ファイル数、最終活動、ahead/behindを表示
 - カードにChatGPT URLを登録し、次回からカードクリックで直接開く
-- 右クリックでURL編集、repoフォルダを開く、一覧から削除
+- 右クリックでURL編集、repoフォルダを開く、登録解除
+- 同名フォルダのrepoが複数あってもパス単位で別repoとして扱う
+- Git監視は最大4repoを並列に検査し、多数repo時の更新待ちを抑える
 
 ## 状態判定
 
@@ -26,16 +28,19 @@
 
 Python 3.11+ と Git が必要です。公式Windows版PythonであればTkinterは通常同梱されています。
 
+PowerShell:
+
+```powershell
+.\run.cmd
+```
+
+cmd.exe:
+
 ```bat
 run.cmd
 ```
 
-または:
-
-```powershell
-$env:PYTHONPATH = "$PWD\src"
-py -3 -m repo_monitor
-```
+`run.cmd` は `python` → `py -3` → `python3` の順に、実際に起動可能なPython 3を選びます。Windows Python Launcherに古いAnaconda登録が残っていても、別の有効なPythonがあればそちらへフォールバックします。
 
 初回は検出されたrepoがカード化されます。Chat URL未登録のカードをクリックするとURL入力が出るので、ブラウザで開いている通常チャットのURLを貼り付けます。
 
@@ -43,19 +48,23 @@ py -3 -m repo_monitor
 
 Windows: `%APPDATA%\KiNoTchRepoMonitor\config.json`
 
-ここにscan root、repo path、ChatGPT URLを保存します。repo内へ個人URLは保存しません。
+ここにscan root、repo path、ChatGPT URLを保存します。repo内へ個人URLは保存しません。設定は同一ファイルシステム上の一時ファイルからatomic replaceし、破損JSONを検出した場合は `config.json.corrupt` へ退避して既定値で起動します。
 
 ## 検証
 
-```bat
-verify.cmd
+PowerShell:
+
+```powershell
+.\verify.cmd
 ```
+
+`verify.cmd` はunit tests、compile check、headless smokeを、`run.cmd`と同じPython選択規則で実行します。
 
 ## Repository Base / devflow
 
 - `project/` は `kinotch-repository-base` の `windows-gui` profileに合わせた構造です。
-- devflowの2026-09-25時点の30 managed repositoriesを並び順メタデータとして同梱しています。
-- devflow自体のCurrent Stateを置き換えるものではありません。このGUIはローカル観測専用です。
+- devflowは開発運用上のcross-repository authorityとして使用し、アプリruntimeへmanaged-repository一覧を埋め込みません。
+- GUIに表示するrepoはローカル検出・登録状態だけを正とします。
 
 ## GitHub
 
@@ -64,5 +73,5 @@ verify.cmd
 ```powershell
 git clone https://github.com/kinoko34077/kinotch-repo-monitor.git
 cd kinotch-repo-monitor
-run.cmd
+.\run.cmd
 ```
