@@ -19,3 +19,4 @@ jobs:
       - run: python -m repo_monitor --smoke
         env:
           PYTHONPATH: src
+      - run: cmd /c run.cmd --smoke
