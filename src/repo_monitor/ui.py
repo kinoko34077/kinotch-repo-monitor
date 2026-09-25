@@ -12,7 +12,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 
 from .config import AppConfig, ConfigStore, RepoEntry
-from .devflow import DEFAULT_MANAGED_REPOSITORIES
 from .discovery import discover_repositories
 from .git_inspector import activity_age_seconds, inspect_repositories
 from .registry import merge_discovered, repo_identity
@@ -83,14 +82,9 @@ class RepoMonitorApp:
         self.store.save(self.config)
 
     def _ordered_repos(self) -> list[RepoEntry]:
-        managed = {name.lower(): i for i, name in enumerate(DEFAULT_MANAGED_REPOSITORIES)}
         return sorted(
             self.config.repositories,
-            key=lambda r: (
-                (0, managed[r.name.lower()], self._repo_key(r))
-                if r.name.lower() in managed
-                else (1, r.name.lower(), self._repo_key(r))
-            ),
+            key=lambda repo: (repo.name.casefold(), self._repo_key(repo)),
         )
 
     def _render_cards(self) -> None:
@@ -219,7 +213,7 @@ class RepoMonitorApp:
         menu.add_command(label="Chat URLを設定", command=lambda: self.set_chat_url(repo))
         menu.add_command(label="Repoフォルダを開く", command=lambda: self.open_folder(repo.path))
         menu.add_separator()
-        menu.add_command(label="一覧から削除", command=lambda: self.remove_repository(repo))
+        menu.add_command(label="登録解除（再検出で復帰）", command=lambda: self.remove_repository(repo))
         menu.tk_popup(event.x_root, event.y_root)
 
     def add_repository(self) -> None:
