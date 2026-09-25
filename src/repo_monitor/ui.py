@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -37,9 +38,11 @@ class RepoMonitorApp:
         self.cards: dict[str, tk.Frame] = {}
         self.labels: dict[str, dict[str, tk.Label]] = {}
         self.refreshing = False
+        self._result_queue: queue.Queue[list] = queue.Queue()
         self._build_window()
         self._discover_and_save()
         self._render_cards()
+        self.root.after(50, self._poll_results)
         self.root.after(100, self.refresh)
 
     def _build_window(self) -> None:
@@ -116,9 +119,18 @@ class RepoMonitorApp:
             results = []
             for repo in repos:
                 results.append((repo, inspect_repository(repo.path)))
-            self.root.after(0, lambda: self._apply_snapshots(results))
+            self._result_queue.put(results)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _poll_results(self) -> None:
+        try:
+            while True:
+                results = self._result_queue.get_nowait()
+                self._apply_snapshots(results)
+        except queue.Empty:
+            pass
+        self.root.after(50, self._poll_results)
 
     def _apply_snapshots(self, results) -> None:
         now = time.time()
