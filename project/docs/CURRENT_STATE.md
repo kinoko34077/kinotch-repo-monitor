@@ -2,7 +2,7 @@
 
 ## Version
 
-v0.1 — audit/refactor candidate
+v0.1
 
 ## Implemented
 
@@ -31,10 +31,8 @@ v0.1 — audit/refactor candidate
 - `_run_python.cmd tools\benchmark_refresh.py`: bounded-parallel refresh benchmark
 - `.github/workflows/verify.yml`: Windows execution of repository verification and benchmark
 
-## Active audit work
-
-Repository-local Issue #1 owns the current stability/performance audit and its final verification evidence. Initial audit base: `4126eecddcf789091903a008d0e8bb9a6431f489`.
+Detailed audit findings and verification evidence are retained in repository Issue #1 and its implementation PR rather than duplicated into this Current State document.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` remains the canonical remote branch after reviewed/verified changes are merged.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical remote branch.
