@@ -45,6 +45,19 @@ class UiThreadingTests(unittest.TestCase):
         second = RepoEntry("same", "C:/two/same")
         self.assertNotEqual(RepoMonitorApp._repo_key(first), RepoMonitorApp._repo_key(second))
 
+    def test_repository_order_is_local_name_order_not_static_devflow_snapshot(self):
+        app = object.__new__(RepoMonitorApp)
+        app.config = AppConfig(
+            repositories=[
+                RepoEntry("weather-widget", "C:/repos/weather-widget"),
+                RepoEntry("alpha-local", "C:/repos/alpha-local"),
+            ]
+        )
+        self.assertEqual(
+            [repo.name for repo in app._ordered_repos()],
+            ["alpha-local", "weather-widget"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
