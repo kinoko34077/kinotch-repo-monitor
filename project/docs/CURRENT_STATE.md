@@ -2,37 +2,43 @@
 
 ## Version
 
-v0.1
+v0.2 local Web migration in progress on `feature/local-web-ui`
 
-## Implemented
+## Implemented on branch
 
-- 5-column Tkinter card grid
+- loopback-only standard-library HTTP server
+- responsive Vanilla HTML/CSS/JS repository dashboard
+- local JSON state/action API
+- browser search and status filtering
+- Chat URL open/edit controls
+- explicit repository folder-open / registration-remove controls
 - local direct-child repository discovery with inaccessible-root tolerance
 - normalized-path repository identity, including equal basenames at different paths
 - one-command-per-repository Git porcelain v2 inspection
 - bounded refresh inspection with at most 4 concurrent Git workers
-- Tk main-thread-only UI updates through a one-slot result queue
-- 200 ms result-queue polling and 2 s default refresh cadence
-- activity classification and color mapping
-- branch / short HEAD / dirty count / upstream ahead-behind display
+- activity classification and color/text status mapping
 - AppData-backed ChatGPT URL registration
 - crash-safe atomic config replacement and corrupt-config quarantine
-- card click -> ChatGPT URL
-- right-click URL edit / folder open / registration removal
-- standard-library-only Python runtime plus Git executable
-- shared Windows Python resolver used by both `run.cmd` and `verify.cmd`
-- unittest suite, compile check, headless smoke and deterministic refresh benchmark
+- shared Windows Python >=3.11 resolver used by launch and verification
+- packaged Web assets without Node/npm runtime dependency
 - live devflow used only as development-control authority; no managed-repository snapshot embedded in runtime
+
+## Removed on branch
+
+- Tkinter UI surface and Tk-specific threading tests
+- fixed desktop-window geometry/right-click-menu interaction model
 
 ## Verification entry points
 
-- `verify.cmd`: full unit suite + compile check + headless smoke
-- `run.cmd --smoke`: actual launcher path smoke
+- `verify.cmd`: full unit suite + compile check + headless smoke + localhost render/fetch check
+- `run.cmd --smoke`: actual launcher path smoke without browser/Tkinter
 - `_run_python.cmd tools\benchmark_refresh.py`: bounded-parallel refresh benchmark
-- `.github/workflows/verify.yml`: Windows execution of repository verification and benchmark
+- `.github/workflows/verify.yml`: Windows execution of repository verification and Web checks
 
-Detailed audit findings and verification evidence are retained in repository Issue #1 and its implementation PR rather than duplicated into this Current State document.
+## Active work
+
+Repository Issue #3 owns the Web UI migration. Detailed findings, verification evidence and PR status belong there rather than being duplicated into this Current State document.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical remote branch.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` remains canonical until the migration PR is verified and merged.
