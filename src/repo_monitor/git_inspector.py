@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterable, TypeVar
 
 
 @dataclass
@@ -147,6 +149,30 @@ def inspect_repository(path: str | Path) -> RepoSnapshot:
     except Exception as exc:
         snap.error = str(exc)
     return snap
+
+
+T = TypeVar("T")
+
+
+def inspect_repositories(
+    paths: Iterable[str | Path],
+    *,
+    max_workers: int = 4,
+    inspector: Callable[[str | Path], T] = inspect_repository,
+) -> list[T]:
+    """Inspect repositories concurrently with a small fixed upper bound.
+
+    The result order matches the input order so the UI can zip snapshots back to
+    its repository entries without extra coordination state.
+    """
+    path_list = list(paths)
+    if not path_list:
+        return []
+    workers = max(1, min(int(max_workers), len(path_list)))
+    if workers == 1:
+        return [inspector(path) for path in path_list]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="repo-inspect") as executor:
+        return list(executor.map(inspector, path_list))
 
 
 def activity_age_seconds(snapshot: RepoSnapshot, now: float | None = None) -> float | None:
