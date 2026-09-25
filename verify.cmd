@@ -1,7 +1,15 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 cd /d "%~dp0"
 set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
-py -3 -m unittest discover -s tests -v || exit /b 1
-py -3 -m compileall -q src tests || exit /b 1
-py -3 -m repo_monitor --smoke || exit /b 1
+
+call "%~dp0_run_python.cmd" -m unittest discover -s tests -v
+if errorlevel 1 exit /b %errorlevel%
+
+call "%~dp0_run_python.cmd" -m compileall -q src tests
+if errorlevel 1 exit /b %errorlevel%
+
+call "%~dp0_run_python.cmd" -m repo_monitor --smoke
+if errorlevel 1 exit /b %errorlevel%
+
+exit /b 0
