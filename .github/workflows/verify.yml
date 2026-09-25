@@ -13,3 +13,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: cmd /c verify.cmd
+      - run: cmd /c _run_python.cmd tools\benchmark_refresh.py
