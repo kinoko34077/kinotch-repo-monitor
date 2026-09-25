@@ -2,13 +2,17 @@
   "schema_version": 1,
   "surfaces": {
     "cli": {
-      "commands": ["--smoke"]
+      "commands": ["--smoke", "--port", "--no-browser"]
     },
-    "gui_windows": {
-      "layout": "five-column-card-grid"
+    "gui_windows": {},
+    "web": {
+      "binding": "127.0.0.1",
+      "ui": "responsive-card-dashboard"
     },
-    "web": {},
-    "api": {},
+    "api": {
+      "scope": "loopback-local-only",
+      "format": "json"
+    },
     "mcp": {},
     "agent": {},
     "library": {}
