@@ -14,8 +14,8 @@ from tkinter import filedialog, messagebox, simpledialog
 from .config import AppConfig, ConfigStore, RepoEntry
 from .devflow import DEFAULT_MANAGED_REPOSITORIES
 from .discovery import discover_repositories
-from .git_inspector import activity_age_seconds, inspect_repository
-from .registry import merge_discovered
+from .git_inspector import activity_age_seconds, inspect_repositories
+from .registry import merge_discovered, repo_identity
 from .status import DisplayStatus, STATUS_COLORS, classify_status
 
 
@@ -28,6 +28,9 @@ STATUS_LABELS = {
     DisplayStatus.ERROR: "エラー",
 }
 
+RESULT_POLL_MS = 200
+MAX_GIT_WORKERS = 4
+
 
 class RepoMonitorApp:
     def __init__(self, root: tk.Tk, store: ConfigStore | None = None):
@@ -38,12 +41,16 @@ class RepoMonitorApp:
         self.cards: dict[str, tk.Frame] = {}
         self.labels: dict[str, dict[str, tk.Label]] = {}
         self.refreshing = False
-        self._result_queue: queue.Queue[list] = queue.Queue()
+        self._result_queue: queue.Queue[list] = queue.Queue(maxsize=1)
         self._build_window()
         self._discover_and_save()
         self._render_cards()
-        self.root.after(50, self._poll_results)
+        self.root.after(RESULT_POLL_MS, self._poll_results)
         self.root.after(100, self.refresh)
+
+    @staticmethod
+    def _repo_key(repo: RepoEntry) -> str:
+        return repo_identity(repo.path)
 
     def _build_window(self) -> None:
         self.root.title("KiNoTch. Repo Monitor")
@@ -79,7 +86,11 @@ class RepoMonitorApp:
         managed = {name.lower(): i for i, name in enumerate(DEFAULT_MANAGED_REPOSITORIES)}
         return sorted(
             self.config.repositories,
-            key=lambda r: (0, managed[r.name.lower()]) if r.name.lower() in managed else (1, r.name.lower()),
+            key=lambda r: (
+                (0, managed[r.name.lower()], self._repo_key(r))
+                if r.name.lower() in managed
+                else (1, r.name.lower(), self._repo_key(r))
+            ),
         )
 
     def _render_cards(self) -> None:
@@ -101,8 +112,9 @@ class RepoMonitorApp:
             meta.place(x=10, y=72, width=198, height=54)
             chat = tk.Label(card, text="Chat: 未登録" if not repo.chat_url else "Chat: 登録済", font=("Segoe UI", 8), bg=card["bg"], anchor="e")
             chat.place(x=10, y=123, width=198)
-            self.cards[repo.name] = card
-            self.labels[repo.name] = {"name": name, "state": state, "meta": meta, "chat": chat}
+            key = self._repo_key(repo)
+            self.cards[key] = card
+            self.labels[key] = {"name": name, "state": state, "meta": meta, "chat": chat}
             for widget in (card, name, state, meta, chat):
                 widget.bind("<Button-1>", lambda _e, r=repo: self.open_chat(r))
                 widget.bind("<Button-3>", lambda e, r=repo: self.show_context_menu(e, r))
@@ -116,21 +128,30 @@ class RepoMonitorApp:
         repos = list(self.config.repositories)
 
         def worker():
-            results = []
-            for repo in repos:
-                results.append((repo, inspect_repository(repo.path)))
-            self._result_queue.put(results)
+            snapshots = inspect_repositories(
+                [repo.path for repo in repos],
+                max_workers=MAX_GIT_WORKERS,
+            )
+            results = list(zip(repos, snapshots))
+            try:
+                self._result_queue.put_nowait(results)
+            except queue.Full:
+                try:
+                    self._result_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self._result_queue.put_nowait(results)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _poll_results(self) -> None:
         try:
-            while True:
-                results = self._result_queue.get_nowait()
-                self._apply_snapshots(results)
+            results = self._result_queue.get_nowait()
         except queue.Empty:
             pass
-        self.root.after(50, self._poll_results)
+        else:
+            self._apply_snapshots(results)
+        self.root.after(RESULT_POLL_MS, self._poll_results)
 
     def _apply_snapshots(self, results) -> None:
         now = time.time()
@@ -144,29 +165,30 @@ class RepoMonitorApp:
                 self.config.active_seconds,
                 self.config.stale_seconds,
             )
-            self.snapshots[repo.name] = snap
+            self.snapshots[self._repo_key(repo)] = snap
             self._update_card(repo, snap, state, age)
         self.refreshing = False
         self.statusbar.config(text=f"最終更新 {time.strftime('%H:%M:%S')} / {len(results)} repos")
         self.root.after(self.config.refresh_ms, self.refresh)
 
     def _update_card(self, repo, snap, state, age) -> None:
-        if repo.name not in self.cards:
+        key = self._repo_key(repo)
+        if key not in self.cards:
             return
         color = STATUS_COLORS[state]
-        card = self.cards[repo.name]
+        card = self.cards[key]
         card.configure(bg=color)
-        for label in self.labels[repo.name].values():
+        for label in self.labels[key].values():
             label.configure(bg=color)
-        self.labels[repo.name]["state"].configure(text=STATUS_LABELS[state])
+        self.labels[key]["state"].configure(text=STATUS_LABELS[state])
         if snap.error:
             meta = snap.error[:80]
         else:
             activity = "--" if age is None else self._format_age(age)
             sync = f"↑{snap.ahead} ↓{snap.behind}" if snap.upstream else "upstreamなし"
             meta = f"{snap.branch}  {snap.head}\n変更 {snap.changed_count} / 活動 {activity}\n{sync}"
-        self.labels[repo.name]["meta"].configure(text=meta)
-        self.labels[repo.name]["chat"].configure(text="Chat: 登録済" if repo.chat_url else "Chat: 未登録")
+        self.labels[key]["meta"].configure(text=meta)
+        self.labels[key]["chat"].configure(text="Chat: 登録済" if repo.chat_url else "Chat: 未登録")
 
     @staticmethod
     def _format_age(seconds: float) -> str:
@@ -188,7 +210,7 @@ class RepoMonitorApp:
             return
         repo.chat_url = value.strip()
         self.store.save(self.config)
-        label = self.labels.get(repo.name, {}).get("chat")
+        label = self.labels.get(self._repo_key(repo), {}).get("chat")
         if label is not None:
             label.configure(text="Chat: 登録済" if repo.chat_url else "Chat: 未登録")
 
@@ -204,22 +226,24 @@ class RepoMonitorApp:
         path = filedialog.askdirectory(title="Git repositoryを選択", parent=self.root)
         if not path:
             return
-        p = Path(path)
+        p = Path(path).resolve(strict=False)
         if not (p / ".git").exists():
             messagebox.showerror("Repoではありません", ".git が見つかりません。", parent=self.root)
             return
-        if not any(r.name.lower() == p.name.lower() for r in self.config.repositories):
+        key = repo_identity(p)
+        existing = next((r for r in self.config.repositories if self._repo_key(r) == key), None)
+        if existing is None:
             self.config.repositories.append(RepoEntry(p.name, str(p)))
         else:
-            for repo in self.config.repositories:
-                if repo.name.lower() == p.name.lower():
-                    repo.path = str(p)
+            existing.name = p.name
+            existing.path = str(p)
         self.store.save(self.config)
         self._render_cards()
         self.refresh()
 
     def remove_repository(self, repo: RepoEntry) -> None:
-        self.config.repositories = [r for r in self.config.repositories if r.name != repo.name]
+        key = self._repo_key(repo)
+        self.config.repositories = [r for r in self.config.repositories if self._repo_key(r) != key]
         self.store.save(self.config)
         self._render_cards()
 
