@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "surfaces": {
+    "cli": {
+      "commands": ["--smoke"]
+    },
+    "gui_windows": {
+      "layout": "five-column-card-grid"
+    },
+    "web": {},
+    "api": {},
+    "mcp": {},
+    "agent": {},
+    "library": {}
+  }
+}

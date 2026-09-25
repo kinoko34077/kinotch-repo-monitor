@@ -1,0 +1,6 @@
+{
+  "columns": 5,
+  "refresh_ms": 2000,
+  "active_seconds": 60,
+  "stale_seconds": 600
+}
