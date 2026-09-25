@@ -14,6 +14,7 @@ class FakeService:
         self.removed = False
         self.opened = False
         self.rediscovered = False
+        self.added_path = ""
 
     def state(self):
         return {"refresh_ms": 2000, "repositories": [{"key": self.repo_key, "name": "repo name", "status": "CLEAN"}]}
@@ -21,6 +22,12 @@ class FakeService:
     def rediscover(self):
         self.rediscovered = True
         return self.state()
+
+    def add_repository(self, path):
+        if path == "bad":
+            raise ValueError("Git repository (.git) not found")
+        self.added_path = path
+        return {"key": path, "name": "added", "path": path, "chat_url": ""}
 
     def set_chat_url(self, repo_key, chat_url):
         if repo_key != self.repo_key:
@@ -81,6 +88,26 @@ class WebServerTests(unittest.TestCase):
         self.assertEqual(json.loads(body)["chat_url"], "https://chatgpt.com/c/x")
         self.assertEqual(self.service.chat_url, "https://chatgpt.com/c/x")
 
+    def test_manual_add_validates_path_payload(self):
+        status, _, body = self.request(
+            "POST",
+            "/api/repos/add",
+            json.dumps({"path": r"C:\work\manual"}),
+            {"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.service.added_path, r"C:\work\manual")
+        self.assertEqual(json.loads(body)["name"], "added")
+
+        status, _, body = self.request(
+            "POST",
+            "/api/repos/add",
+            json.dumps({"path": "bad"}),
+            {"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Git repository", json.loads(body)["error"])
+
     def test_malformed_json_is_400_and_unknown_repo_is_404(self):
         encoded = quote(self.service.repo_key, safe="")
         status, _, _ = self.request("POST", f"/api/repos/{encoded}/chat-url", b"{bad", {"Content-Type": "application/json"})
@@ -104,6 +131,10 @@ class WebServerTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/nope")[0], 404)
         self.assertEqual(self.request("GET", "/../config.py")[0], 404)
         self.assertEqual(self.request("GET", "/web/../config.py")[0], 404)
+
+    def test_non_loopback_bind_is_rejected(self):
+        with self.assertRaises(ValueError):
+            create_server(host="0.0.0.0", port=0, service=self.service)
 
 
 if __name__ == "__main__":
