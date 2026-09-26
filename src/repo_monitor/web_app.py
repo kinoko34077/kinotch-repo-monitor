@@ -114,6 +114,7 @@ class RepoMonitorService:
                     "ahead": snap.ahead,
                     "behind": snap.behind,
                     "upstream": snap.upstream,
+                    "remote_web_url": getattr(snap, "remote_web_url", ""),
                     "error": snap.error,
                     "devflow": workflow.as_dict() if workflow else None,
                 }
