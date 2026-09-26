@@ -37,7 +37,29 @@ class WebAssetTests(unittest.TestCase):
 
     def test_repository_card_click_opens_registered_chat_or_registration_dialog(self):
         js = (self.web_dir / "app.js").read_text(encoding="utf-8")
-        self.assertIn('card.addEventListener("click", () => openChat(repo))', js)
+        self.assertIn('card.addEventListener("click"', js)
+        self.assertIn("openChat(view.repo)", js)
+
+    def test_routine_refresh_reconciles_stable_repo_keyed_card_nodes(self):
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const cardViews = new Map()", js)
+        self.assertIn("function ensureCardView", js)
+        self.assertIn("function updateCardView", js)
+        self.assertIn("function reconcileCards", js)
+        self.assertNotIn("repoGrid.replaceChildren", js)
+        self.assertNotIn("ui.grid.replaceChildren", js)
+
+    def test_filtering_hides_existing_cards_instead_of_recreating_them(self):
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        self.assertIn("view.card.hidden =", js)
+        self.assertIn("cardViews.get(repo.key)", js)
+
+    def test_dialog_tracks_logical_opener_and_pending_status_is_visible(self):
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        self.assertIn("let dialogOpener = null", js)
+        self.assertIn("dialogOpener = { repoKey", js)
+        self.assertIn("restoreDialogFocus", js)
+        self.assertIn('PENDING: "確認中"', js)
 
 
 if __name__ == "__main__":
