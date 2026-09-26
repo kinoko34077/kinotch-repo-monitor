@@ -7,6 +7,19 @@ const STATUS_LABELS = {
   ERROR: "エラー",
 };
 
+const DEVFLOW_STATUS_LABELS = {
+  NEEDS_AUDIT: "監査待ち",
+  AUDITED: "監査済",
+  WORK_ORDER_READY: "作業準備",
+  READY_FOR_IMPLEMENTATION: "実装待ち",
+  IMPLEMENTING: "実装中",
+  AWAITING_REVIEW: "レビュー待ち",
+  BLOCKED: "ブロック",
+  NEEDS_REAUDIT: "再監査",
+  PARKED: "保留",
+  DONE: "完了",
+};
+
 const ui = {
   grid: document.getElementById("repo-grid"),
   status: document.getElementById("status-line"),
@@ -90,7 +103,8 @@ function filteredRepos() {
   const status = ui.filter.value;
   return currentState.repositories.filter((repo) => {
     const matchesStatus = status === "ALL" || repo.status === status;
-    const haystack = `${repo.name} ${repo.branch} ${repo.path}`.toLocaleLowerCase();
+    const workflow = repo.devflow || {};
+    const haystack = `${repo.name} ${repo.branch} ${repo.path} ${workflow.work_status || ""} ${workflow.repository_state || ""} ${workflow.active_work || ""} ${workflow.next_action || ""}`.toLocaleLowerCase();
     return matchesStatus && (!query || haystack.includes(query));
   });
 }
@@ -135,6 +149,45 @@ async function repoAction(repo, action, body = {}) {
   return api(`/api/repos/${key}/${action}`, { method: "POST", body });
 }
 
+function renderDevflow(repo) {
+  if (!repo.devflow) return null;
+  const workflow = repo.devflow;
+  const block = element("section", "workflow-summary");
+  block.addEventListener("click", (event) => event.stopPropagation());
+
+  const header = element("div", "workflow-heading");
+  const badge = element(
+    "span",
+    "workflow-badge",
+    DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status || "devflow",
+  );
+  badge.dataset.workStatus = workflow.work_status || "UNKNOWN";
+  header.append(badge);
+
+  const issueUrl = safeWebUrl(workflow.issue_url);
+  if (issueUrl) {
+    const issue = element("a", "workflow-link", `#${workflow.issue_number || "?"}`);
+    issue.href = issueUrl;
+    issue.target = "_blank";
+    issue.rel = "noopener noreferrer";
+    issue.title = "devflow Control Issueを開く";
+    header.append(issue);
+  }
+  block.append(header);
+
+  const details = element("dl", "workflow-meta");
+  const rows = [
+    ["repo", workflow.repository_state || "--"],
+    ["作業", workflow.active_work || "--"],
+    ["次", workflow.next_action || "--"],
+  ];
+  for (const [label, value] of rows) {
+    details.append(element("dt", "", label), element("dd", "", value));
+  }
+  block.append(details);
+  return block;
+}
+
 function renderCard(repo) {
   const card = element("article", "repo-card");
   card.dataset.status = repo.status;
@@ -143,8 +196,9 @@ function renderCard(repo) {
   const heading = element("div", "card-heading");
   const name = element("h2", "repo-name", repo.name);
   name.title = repo.path;
-  const badge = element("span", "state-badge", STATUS_LABELS[repo.status] || repo.status);
-  heading.append(name, badge);
+  const badges = element("div", "card-badges");
+  badges.append(element("span", "state-badge", STATUS_LABELS[repo.status] || repo.status));
+  heading.append(name, badges);
   card.append(heading);
 
   const meta = element("dl", "repo-meta");
@@ -158,6 +212,9 @@ function renderCard(repo) {
     meta.append(element("dt", "", label), element("dd", "", value));
   }
   card.append(meta);
+
+  const workflow = renderDevflow(repo);
+  if (workflow) card.append(workflow);
 
   if (repo.error) card.append(element("p", "repo-error", repo.error));
   const path = element("p", "repo-path", repo.path);
@@ -211,6 +268,13 @@ function scheduleRefresh() {
   refreshTimer = window.setTimeout(() => refreshState({ quiet: true }), delay);
 }
 
+function refreshStatusText() {
+  const updated = new Date((currentState.updated_at || Date.now() / 1000) * 1000);
+  let text = `最終更新 ${updated.toLocaleTimeString()} / ${currentState.repositories.length} repos`;
+  if (currentState.devflow?.stale) text += " / devflow取得失敗（前回値を表示）";
+  return text;
+}
+
 async function refreshState({ quiet = false } = {}) {
   if (refreshing) return;
   refreshing = true;
@@ -218,8 +282,7 @@ async function refreshState({ quiet = false } = {}) {
   try {
     currentState = await api("/api/state");
     render();
-    const updated = new Date((currentState.updated_at || Date.now() / 1000) * 1000);
-    setStatus(`最終更新 ${updated.toLocaleTimeString()} / ${currentState.repositories.length} repos`);
+    setStatus(refreshStatusText(), Boolean(currentState.devflow?.error && !currentState.devflow?.fetched_at));
   } catch (error) {
     setStatus(`更新失敗: ${error.message}`, true);
   } finally {
