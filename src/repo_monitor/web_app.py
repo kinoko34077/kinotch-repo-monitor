@@ -60,7 +60,8 @@ class RepoMonitorService:
         if self._devflow_provider is None:
             return DevflowSnapshot({}, None, None, False)
         try:
-            snapshot = self._devflow_provider.snapshot()  # type: ignore[attr-defined]
+            nonblocking = getattr(self._devflow_provider, "snapshot_nonblocking", None)
+            snapshot = nonblocking() if callable(nonblocking) else self._devflow_provider.snapshot()  # type: ignore[attr-defined]
             if isinstance(snapshot, DevflowSnapshot):
                 return snapshot
             raise TypeError("invalid devflow snapshot")
