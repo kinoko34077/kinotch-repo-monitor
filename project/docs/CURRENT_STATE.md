@@ -2,69 +2,66 @@
 
 ## Version
 
-v0.2 local Web is the canonical `main` surface. The Tkinter surface was replaced by PR #4.
+v0.3 devflow workflow-state overlay is implemented on `feature/devflow-state` from baseline `fd7caac2f62c57ebcd97ca189e5a5530ce475f32`. `main` remains canonical until Issue #6 / its PR are verified and merged.
 
-## Implemented
+## Implemented on feature branch
+
+- all v0.2 localhost Web monitoring behavior retained
+- read-only public devflow Repository Control Issue fetch
+- parser for `Work Status`, `Repository State`, `Active Work`, `Next Action`, Issue number/URL/update timestamp
+- 120-second devflow cache independent of the 2-second local Git refresh
+- 30-second retry suppression after devflow fetch failure
+- last-successful devflow state retained as stale when a later fetch fails
+- local repository basename -> devflow `[REPO]` control-name mapping, case-insensitive, for this first phase
+- `/api/state` exposes devflow metadata and per-repository devflow state independently from local Git status
+- browser renders local state and devflow workflow state as separate badges/details
+- browser search includes devflow workflow fields
+- Control Issue link opens the matching devflow Issue
+- devflow networking is enabled only at the Web-server composition root; service unit tests remain network-independent
+- local Git/filesystem `ACTIVE/IDLE/STALE/COMMITTED/CLEAN/ERROR` semantics remain unchanged
+- no devflow write operations, authentication/token handling, session lease/heartbeat, or direct ChatGPT execution-state detection
+
+## Existing v0.2 behavior retained
 
 - loopback-only standard-library HTTP server
-- local request boundary hardening: loopback Host enforcement, local Origin enforcement for browser POSTs, `application/json`-only action requests, same-origin resource policy and restrictive CSP
-- responsive Vanilla HTML/CSS/JS repository dashboard
-- local JSON state/action API
-- browser search and status filtering
-- card click -> registered ChatGPT URL or Chat URL registration dialog
-- Chat URL open/edit controls
-- manual repository registration by validated absolute local path
-- explicit repository folder-open / registration-remove controls
-- local direct-child repository discovery with inaccessible-root tolerance
-- normalized-path repository identity, including equal basenames at different paths
-- one-command-per-repository Git porcelain v2 inspection
-- bounded refresh inspection with at most 4 concurrent Git workers
-- activity classification and color/text status mapping
-- AppData-backed ChatGPT URL registration
-- crash-safe atomic config replacement and corrupt-config quarantine
-- shared Windows Python >=3.11 resolver used by launch and verification
-- packaged Web assets without Node/npm runtime dependency
-- live devflow used only as development-control authority; no managed-repository snapshot embedded in runtime
+- Host / Origin / JSON-only mutation boundary and restrictive CSP
+- responsive Vanilla HTML/CSS/JS dashboard
+- Chat URL registration and card click navigation
+- manual repository registration by validated absolute path
+- local direct-child discovery with inaccessible-root tolerance
+- normalized-path local repository identity
+- bounded four-worker read-only Git inspection
+- AppData-backed crash-safe config persistence
+- shared Windows Python >=3.11 resolver
+- no Node/npm runtime dependency, database, or background service
 
-## Removed in v0.2
+## Verification evidence so far
 
-- Tkinter UI surface and Tk-specific threading tests
-- fixed desktop-window geometry/right-click-menu interaction model
+Windows CI at implementation commit `ad13605f63cfab71951b6f57b0f13a9c1238940f`: success.
 
-## Verification evidence
-
-Implementation PR #4 squash-merged as `e8df28b15407319e71962c18d433445b6e9d819a`.
-
-Post-merge Windows CI on that `main` commit: success.
-
-Security-hardened implementation verification included:
-
-- 41 unit/regression tests: success
-- cross-origin POST rejection regression test: success
-- non-local Host rejection regression test: success
-- non-JSON action request rejection regression test: success
+- full unit/regression suite at that implementation head: success
 - compile check: success
 - `run.cmd --smoke`: success
+- bounded-parallel benchmark: success
 - localhost asset/API check: success
-- Microsoft Edge headless browser render at 1440×900: success
-- uploaded `repo-monitor-web-render` screenshot artifact: success
-- deterministic refresh benchmark, 12 simulated repositories × 30 ms: 364.9 ms serial vs 93.2 ms bounded-parallel = 3.92× on the recorded security-hardened run
-- browser-render screenshot artifact manually inspected; dashboard controls and representative repository cards rendered without visible layout breakage
+- Microsoft Edge headless browser render: success
+- screenshot artifact upload: success
+- downloaded screenshot manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage
 
-Changed-scope re-audit found and fixed the localhost Host/origin/content-type boundary before merge. No unresolved P0/P1/P2 finding remains in the reviewed v0.2 scope.
+A fresh full verification is still required on the final branch head after documentation/version alignment before PR merge.
 
 ## Verification entry points
 
 - `verify.cmd`: full unit suite + compile check + headless smoke + localhost render/fetch check
-- `run.cmd --smoke`: actual launcher path smoke without browser/Tkinter
+- `run.cmd --smoke`: actual launcher path smoke
 - `_run_python.cmd tools\benchmark_refresh.py`: bounded-parallel refresh benchmark
 - `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: real browser render check
 - `.github/workflows/verify.yml`: Windows execution plus screenshot artifact upload
 
 ## Active work
 
-None. Repository Issue #3 is completed and PR #4 is merged. Await the next user-requested change.
+Repository Issue #6 owns the devflow read-only workflow-state integration. Cross-repository state is tracked by `kinoko34077/devflow#59`.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical implementation branch.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is canonical until the v0.3 feature PR is merged and post-merge verification succeeds.
