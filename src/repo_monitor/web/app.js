@@ -14,6 +14,13 @@ const ui = {
   empty: document.getElementById("empty-state"),
   refresh: document.getElementById("refresh-button"),
   rediscover: document.getElementById("rediscover-button"),
+  addButton: document.getElementById("repo-add-button"),
+  addDialog: document.getElementById("repo-add-dialog"),
+  addForm: document.getElementById("repo-add-form"),
+  addPath: document.getElementById("repo-path-input"),
+  addError: document.getElementById("repo-add-error"),
+  addClose: document.getElementById("repo-add-close"),
+  addCancel: document.getElementById("repo-add-cancel"),
   search: document.getElementById("search-input"),
   filter: document.getElementById("status-filter"),
   dialog: document.getElementById("chat-dialog"),
@@ -105,6 +112,13 @@ function openChatDialog(repo) {
   ui.dialogError.textContent = "";
   ui.dialog.showModal();
   window.setTimeout(() => ui.chatInput.focus(), 0);
+}
+
+function openAddDialog() {
+  ui.addPath.value = "";
+  ui.addError.textContent = "";
+  ui.addDialog.showModal();
+  window.setTimeout(() => ui.addPath.focus(), 0);
 }
 
 function openChat(repo) {
@@ -224,6 +238,26 @@ ui.rediscover.addEventListener("click", async () => {
     setStatus(`再検出失敗: ${error.message}`, true);
   } finally {
     scheduleRefresh();
+  }
+});
+ui.addButton.addEventListener("click", openAddDialog);
+ui.addClose.addEventListener("click", () => ui.addDialog.close());
+ui.addCancel.addEventListener("click", () => ui.addDialog.close());
+ui.addForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const path = ui.addPath.value.trim();
+  if (!path) {
+    ui.addError.textContent = "repoの絶対パスを入力してください。";
+    return;
+  }
+  ui.addError.textContent = "";
+  try {
+    const added = await api("/api/repos/add", { method: "POST", body: { path } });
+    ui.addDialog.close();
+    await refreshState({ quiet: true });
+    setStatus(`${added.name} を追加しました`);
+  } catch (error) {
+    ui.addError.textContent = error.message;
   }
 });
 ui.search.addEventListener("input", render);
