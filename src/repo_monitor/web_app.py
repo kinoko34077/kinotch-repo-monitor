@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .config import AppConfig, ConfigStore, RepoEntry
+from .devflow_state import DevflowSnapshot, DevflowStateProvider
 from .discovery import discover_repositories
 from .git_inspector import RepoSnapshot, activity_age_seconds, inspect_repositories
 from .registry import merge_discovered, repo_identity
@@ -34,12 +35,14 @@ class RepoMonitorService:
         discoverer: Callable[[Iterable[str]], list[Path]] = discover_repositories,
         inspector: Callable[..., list[RepoSnapshot]] = inspect_repositories,
         folder_opener: Callable[[str], None] = _default_folder_opener,
+        devflow_provider: DevflowStateProvider | object | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.store = store or ConfigStore()
         self._discoverer = discoverer
         self._inspector = inspector
         self._folder_opener = folder_opener
+        self._devflow_provider = devflow_provider or DevflowStateProvider()
         self._clock = clock
         self._lock = threading.RLock()
         self.config = self.store.load()
@@ -52,6 +55,15 @@ class RepoMonitorService:
             if repo_identity(repo.path) == repo_key:
                 return repo
         raise KeyError(repo_key)
+
+    def _devflow_snapshot(self) -> DevflowSnapshot:
+        try:
+            snapshot = self._devflow_provider.snapshot()  # type: ignore[attr-defined]
+            if isinstance(snapshot, DevflowSnapshot):
+                return snapshot
+            raise TypeError("invalid devflow snapshot")
+        except Exception as exc:
+            return DevflowSnapshot({}, None, str(exc) or exc.__class__.__name__, True)
 
     def state(self) -> dict[str, object]:
         with self._lock:
@@ -68,6 +80,8 @@ class RepoMonitorService:
             [repo.path for repo in config.repositories],
             max_workers=MAX_GIT_WORKERS,
         )
+        devflow = self._devflow_snapshot()
+        devflow_by_name = {name.casefold(): value for name, value in devflow.repositories.items()}
         now = self._clock()
         repositories: list[dict[str, object]] = []
         for repo, snap in zip(config.repositories, snapshots):
@@ -80,6 +94,7 @@ class RepoMonitorService:
                 config.active_seconds,
                 config.stale_seconds,
             )
+            workflow = devflow_by_name.get(repo.name.casefold())
             repositories.append(
                 {
                     "key": repo_identity(repo.path),
@@ -97,6 +112,7 @@ class RepoMonitorService:
                     "behind": snap.behind,
                     "upstream": snap.upstream,
                     "error": snap.error,
+                    "devflow": workflow.as_dict() if workflow else None,
                 }
             )
 
@@ -105,6 +121,11 @@ class RepoMonitorService:
             "active_seconds": config.active_seconds,
             "stale_seconds": config.stale_seconds,
             "updated_at": now,
+            "devflow": {
+                "fetched_at": devflow.fetched_at,
+                "stale": devflow.stale,
+                "error": devflow.error,
+            },
             "repositories": repositories,
         }
 
