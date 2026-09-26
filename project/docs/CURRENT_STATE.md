@@ -2,9 +2,9 @@
 
 ## Version
 
-v0.5 implementation candidate is complete on `refactor/monitor-pipeline-v05` and has passed Windows CI through implementation SHA `d9b468a6e0c28562b9bdc53eae641bf9b06c796e`. `main` remains the v0.4 production line until the v0.5 PR is merged and post-merge verification succeeds.
+v0.5 is canonical on `main`. The implementation was squash-merged by PR #21 at `dbbfe6aa624d58526547ba3bd1364bd5b2938e93` and the merged tree passed full Windows CI run `36239567093`.
 
-Issue #20 is the active integration scope. It resolves the code defects from Issues #16, #17 and #18 and also includes the lower-severity UI/interaction findings retained from Issue #15.
+Issues #17 and #18 are completed by PR #21. Issue #16 is code-complete on `main` but remains open as a verification-only item because its original acceptance criteria require a post-refactor measurement on the user's real Windows 20+ repository host, which was not accessed because RDC use is explicitly prohibited. Issue #20 contains the integration/TDD/re-audit record.
 
 ## v0.5 implemented behavior
 
@@ -46,41 +46,42 @@ Issue #20 is the active integration scope. It resolves the code defects from Iss
 - audited secondary text uses `#59616c` or darker.
 - hidden devflow search matches (`work_status`, `repository_state`, `active_work`, `next_action`) expose a visible `一致:` reason instead of silently surfacing an otherwise unexplained card.
 
-## Verification evidence
+## Post-merge verification evidence
 
-Latest full Windows GitHub Actions run for implementation SHA `d9b468a6e0c28562b9bdc53eae641bf9b06c796e`: run `36238955845`, all workflow steps successful.
+Windows GitHub Actions run `36239567093` on merged implementation SHA `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`: all workflow steps successful.
 
 - 72/72 unit/regression tests: success.
 - compile check: success.
 - launcher smoke: success.
 - localhost render/fetch check: success.
 - Edge headless render + screenshot artifact: success.
-- bounded-parallel legacy benchmark: 12 repos × 30 ms simulated latency, 4 workers, serial `365.4 ms`, parallel `93.4 ms`, `3.91x` speedup.
+- bounded-parallel legacy benchmark: 12 repos × 30 ms simulated latency, 4 workers, serial `365.1 ms`, parallel `92.7 ms`, `3.94x` speedup.
 - cached-state benchmark with 24 repository entries:
-  - idle: median `6.57 ms`, p95 `8.36 ms` across 50 sequential reads.
-  - blocked/running scan: median `6.48 ms`, p95 `6.80 ms` across 50 sequential reads.
-  - 20 overlapping reads: maximum `171.03 ms` in this CI run.
+  - idle: median `4.19 ms`, p95 `4.48 ms` across 50 sequential reads.
+  - deliberately blocked/running scan: median `4.11 ms`, p95 `5.43 ms` across 50 sequential reads.
+  - 20 overlapping reads: maximum `507.94 ms` in this CI run.
   - scan batches remained exactly `2` (initial generation + intentionally blocked requested generation), with `max_active_batches=1`; state reads created no extra generation.
 - real-browser interaction regression: stable card node, focus survival, text-selection survival, dialog remaining open, logical focus return, filter hide/show and same-node restoration all passed.
 
-Acceptance thresholds for sequential cached reads are <=25 ms median / <=100 ms p95. Both idle and running-scan measurements passed.
+The acceptance thresholds for sequential cached reads are <=25 ms median / <=100 ms p95. Both idle and running-scan measurements passed. The concurrent maximum is reported as load evidence and has no separate acceptance threshold in v0.5.
 
-## TDD / re-audit evidence
+## TDD / changed-scope re-audit evidence
 
-The refactor was implemented with RED -> GREEN checkpoints. During changed-scope re-audit two additional specification mismatches were found and repaired before PR:
+The refactor was implemented with RED -> GREEN checkpoints. Changed-scope re-audit before PR found and repaired three additional issues:
 
 1. `remove_repository()` and no-op rediscovery still requested unnecessary scans. A regression test first failed with `engine.requests` actual 2 vs expected 1; implementation now scans only when monitored membership changes.
 2. raw devflow `work_status` / `repository_state` could make a card match search while giving no visible reason. A frontend contract test first failed; hidden workflow matches now produce a visible reason, while the displayed translated workflow label is treated as visible search text.
+3. the first documentation sync over-simplified `project/project.json` and removed existing Repository Base metadata. Manual diff review caught this before PR; canonical `project`, `profiles`, `surfaces`, `paths`, setup/build/deploy commands and the module docstring were restored.
 
-No unresolved P0/P1/P2 code finding is currently known inside the changed scope. A final PR-level changed-scope review and main post-merge verification remain required before v0.5 is canonical.
+PR #21 received a manual changed-scope review after its PR-event CI passed. No unresolved P0/P1/P2 implementation finding was identified before merge.
 
 ## Verification boundary
 
-The user's real Windows 20+ repository host is not accessed in this continuation because RDC use was explicitly prohibited. Therefore the v0.5 evidence above is deterministic Windows GitHub Actions evidence, not a post-refactor measurement of the user's actual repository set.
+The user's real Windows 20+ repository host was not accessed in this continuation because RDC use was explicitly prohibited. Therefore the v0.5 measurements above are deterministic Windows GitHub Actions evidence, not a post-refactor measurement of the user's actual repository set.
 
-The prior real-host audit from Issue #15 remains historical evidence for the v0.4 problem state. A future user-host measurement can be performed manually or through an explicitly allowed mechanism, but it is not required to misrepresent CI as the real host.
+The prior real-host audit from Issue #15 remains historical evidence for the v0.4 problem state. Issue #16 stays open only for the explicit real-host post-refactor measurement criterion.
 
-Actual assistive-technology announcement behavior also remains unverified with a screen reader; the implemented contract is based on DOM/live-region structure and browser regression.
+Actual assistive-technology announcement behavior also remains unverified with a screen reader; the implemented accessibility contract is supported by DOM/live-region structure and browser regression rather than direct screen-reader testing.
 
 ## Existing boundaries retained
 
@@ -102,9 +103,11 @@ Actual assistive-technology announcement behavior also remains unverified with a
 - `_run_python.cmd tools\browser_interaction_check.py`: real-browser focus/selection/dialog/filter identity regression.
 - `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: browser render check.
 - `.github/workflows/verify.yml`: Windows CI and screenshot artifact.
+- PR #21: v0.5 implementation merge.
 - Issue #20: v0.5 implementation/re-audit evidence.
-- Issues #16/#17/#18: original P1 defect records.
+- Issue #16: verification-only real-host follow-up.
+- Issues #17/#18: completed P1 defect records.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor`. `main` remains canonical; v0.5 becomes canonical only after its PR is merged and the merged main SHA passes verification.
+Published to `kinoko34077/kinotch-repo-monitor`. v0.5 is the canonical implementation on `main`; the implementation merge SHA is `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`.
