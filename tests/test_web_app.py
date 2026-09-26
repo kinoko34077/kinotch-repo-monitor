@@ -169,27 +169,31 @@ class WebAppServiceTests(unittest.TestCase):
             )
 
             service.rediscover()
+            self.assertEqual(engine.requests, 1)
             self.assertEqual({repo.name for repo in store.load().repositories}, {"first", "second"})
             first_entry = next(repo for repo in store.load().repositories if repo.name == "first")
             self.assertEqual(first_entry.chat_url, "https://chatgpt.com/c/first")
 
             service.set_chat_url(repo_identity(second), "https://chatgpt.com/c/second")
+            self.assertEqual(engine.requests, 1)
             service.remove_repository(repo_identity(second))
+            self.assertEqual(engine.requests, 1)
             hidden = next(repo for repo in store.load().repositories if repo.name == "second")
             self.assertFalse(hidden.monitored)
             self.assertEqual(hidden.chat_url, "https://chatgpt.com/c/second")
             self.assertNotIn("second", {item["name"] for item in service.state()["repositories"]})
 
             service.rediscover()
+            self.assertEqual(engine.requests, 1)
             still_hidden = next(repo for repo in store.load().repositories if repo.name == "second")
             self.assertFalse(still_hidden.monitored)
             self.assertEqual(still_hidden.chat_url, "https://chatgpt.com/c/second")
 
             readded = service.add_repository(str(second))
+            self.assertEqual(engine.requests, 2)
             self.assertEqual(readded["chat_url"], "https://chatgpt.com/c/second")
             restored = next(repo for repo in store.load().repositories if repo.name == "second")
             self.assertTrue(restored.monitored)
-            self.assertGreaterEqual(engine.requests, 3)
 
     def test_manual_repository_add_validates_git_directory_and_persists(self):
         with tempfile.TemporaryDirectory() as tmp:
