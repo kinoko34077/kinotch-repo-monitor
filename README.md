@@ -5,6 +5,7 @@
 ## できること
 
 - `~/Documents/Programs`（Windowsでは通常 `%USERPROFILE%\Documents\Programs`）直下のGit repoを自動検出
+- scan root外のGit repoも絶対パスを入力して手動追加
 - 画面幅に合わせて自動変形するレスポンシブカード表示
 - 名前・branch・path検索と状態フィルター
 - 色 + 状態名で `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / エラー` を表示
@@ -42,7 +43,7 @@ cmd.exe:
 run.cmd
 ```
 
-通常は `http://127.0.0.1:17341/` でローカルサーバーを起動し、既定ブラウザを開きます。外部ネットワークへ公開する用途ではありません。
+通常は `http://127.0.0.1:17341/` でローカルサーバーを起動し、既定ブラウザを開きます。17341番portが使用中なら、空いているloopback portへ自動フォールバックします。外部ネットワークへ公開する用途ではありません。
 
 ブラウザを自動で開かない場合:
 
@@ -63,9 +64,12 @@ run.cmd
 - カード一覧は画面幅に応じて自動的に列数が変わります。
 - `Repo検索`で名前・branch・pathを絞り込めます。
 - 状態selectで活動状態を絞り込めます。
+- `Repo追加`でscan root外のローカルGit repoを絶対パスから登録できます。
 - `Chatを開く / Chat登録`でChatGPT URLを利用します。
 - `URL編集`でリンク変更、`フォルダ`でローカルrepoを開きます。
-- `解除`はconfig上の登録を外すだけで、再検出すると復帰します。
+- `解除`はconfig上の登録を外すだけで、自動検出対象なら再検出すると復帰します。
+
+ブラウザのセキュリティ制約により、Web版の`Repo追加`はネイティブのフォルダ選択ダイアログではなく絶対パス入力方式です。backend側で `.git` の存在を検証します。
 
 ## 設定保存先
 
@@ -81,7 +85,7 @@ PowerShell:
 .\verify.cmd
 ```
 
-`verify.cmd` はunit tests、compile check、headless smoke、localhost Web render/fetch checkを、`run.cmd`と同じPython選択規則で実行します。
+`verify.cmd` はunit tests、compile check、headless smoke、localhost Web render/fetch checkを、`run.cmd`と同じPython選択規則で実行します。GitHub ActionsではEdge/Chrome系headless browserで実際にlocalhost UIを描画し、screenshot artifactも生成します。
 
 ## Repository Base / devflow
 
