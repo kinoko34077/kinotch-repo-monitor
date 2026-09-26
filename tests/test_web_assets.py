@@ -86,6 +86,9 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("search-match-reason", js)
         self.assertIn("一致:", js)
         self.assertIn("function searchMatch", js)
+        self.assertIn("DEVFLOW_STATUS_LABELS[workflow.work_status]", js)
+        self.assertIn('["工程", workflow.work_status]', js)
+        self.assertIn('["repo", workflow.repository_state]', js)
 
     def test_secondary_text_uses_audited_contrast_token(self):
         css = (self.web_dir / "app.css").read_text(encoding="utf-8")
