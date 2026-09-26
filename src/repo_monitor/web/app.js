@@ -150,12 +150,13 @@ function searchMatch(repo) {
     repo.path,
     repo.remote_web_url,
     STATUS_LABELS[repo.status] || repo.status,
-    workflow.work_status,
-    workflow.repository_state,
+    DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status,
   ].filter(Boolean).join(" ").toLocaleLowerCase();
   if (visible.includes(query)) return { matches: true, reason: "" };
 
   const hiddenFields = [
+    ["工程", workflow.work_status],
+    ["repo", workflow.repository_state],
     ["作業", workflow.active_work],
     ["次", workflow.next_action],
   ];
