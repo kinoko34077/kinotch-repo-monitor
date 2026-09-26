@@ -19,6 +19,36 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.repositories[0].name, "demo")
             self.assertEqual(loaded.repositories[0].chat_url, "https://chatgpt.com/c/demo")
 
+    def test_old_config_without_monitored_defaults_to_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(
+                json.dumps({"repositories": [{"name": "demo", "path": "C:/repo", "chat_url": ""}]}),
+                encoding="utf-8",
+            )
+            loaded = ConfigStore(path).load()
+            self.assertTrue(loaded.repositories[0].monitored)
+
+    def test_round_trip_preserves_hidden_membership_and_chat_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            store = ConfigStore(path)
+            store.save(
+                AppConfig(
+                    repositories=[
+                        RepoEntry(
+                            "demo",
+                            "C:/repo",
+                            "https://chatgpt.com/c/demo",
+                            monitored=False,
+                        )
+                    ]
+                )
+            )
+            loaded = store.load()
+            self.assertFalse(loaded.repositories[0].monitored)
+            self.assertEqual(loaded.repositories[0].chat_url, "https://chatgpt.com/c/demo")
+
     def test_missing_config_returns_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = ConfigStore(Path(tmp) / "missing.json")
