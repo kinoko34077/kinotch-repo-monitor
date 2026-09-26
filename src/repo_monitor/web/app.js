@@ -138,6 +138,7 @@ async function repoAction(repo, action, body = {}) {
 function renderCard(repo) {
   const card = element("article", "repo-card");
   card.dataset.status = repo.status;
+  card.addEventListener("click", () => openChat(repo));
 
   const heading = element("div", "card-heading");
   const name = element("h2", "repo-name", repo.name);
