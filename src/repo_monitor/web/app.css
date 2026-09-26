@@ -77,9 +77,13 @@ h2 { font-size: 1.2rem; }
 }
 
 .button {
+  display: inline-flex;
   min-height: 38px;
+  align-items: center;
+  justify-content: center;
   padding: 8px 13px;
   font-weight: 650;
+  text-decoration: none;
 }
 
 .button:hover, .icon-button:hover { border-color: #b8bec7; }
@@ -129,7 +133,7 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .repo-card {
@@ -192,18 +196,40 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 
 .workflow-summary {
   margin-top: 11px;
-  padding: 9px 10px;
   border: 1px solid #e5e8ed;
   border-radius: 10px;
   background: #fafbfc;
 }
 
 .workflow-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  padding: 8px 9px;
+  cursor: pointer;
+  list-style: none;
+}
+.workflow-heading::-webkit-details-marker { display: none; }
+
+.workflow-next-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #68707c;
+  font-size: 0.72rem;
+}
+
+.workflow-toggle {
+  color: #7c8490;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.workflow-details {
+  padding: 9px 10px 10px;
+  border-top: 1px solid #e5e8ed;
 }
 
 .workflow-badge {
@@ -220,6 +246,8 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 .workflow-badge[data-work-status="DONE"] { background: #e4e8ec; color: #525860; }
 
 .workflow-link {
+  display: inline-block;
+  margin-top: 8px;
   color: #5b6572;
   font-size: 0.7rem;
   font-weight: 700;
@@ -230,13 +258,13 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 .workflow-meta {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 4px 8px;
+  gap: 5px 8px;
   margin: 0;
   font-size: 0.72rem;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 .workflow-meta dt { color: #838b96; }
-.workflow-meta dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-meta dd { margin: 0; white-space: normal; overflow-wrap: anywhere; }
 
 .repo-meta {
   display: grid;
@@ -260,7 +288,6 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 }
 
 .card-actions .button { min-height: 32px; padding: 5px 8px; font-size: 0.74rem; }
-.chat-open { margin-right: auto; }
 
 .empty-state {
   margin: 26px 0;
