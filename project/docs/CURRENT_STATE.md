@@ -2,9 +2,9 @@
 
 ## Version
 
-v0.3 devflow workflow-state overlay is implemented and verified on `feature/devflow-state` from baseline `fd7caac2f62c57ebcd97ca189e5a5530ce475f32`. `main` remains canonical until Issue #6 / its PR are merged and post-merge verification succeeds.
+v0.3 devflow workflow-state overlay is canonical on `main` after PR #7, merged as `d22b1c97263d95d542dd0ad69670a97d516a0c58`.
 
-## Implemented on feature branch
+## Implemented
 
 - all v0.2 localhost Web monitoring behavior retained
 - read-only public devflow Repository Control Issue fetch
@@ -50,7 +50,9 @@ Final implementation verification at branch commit `5269ff96d29df041580695c1ba56
 - screenshot artifact upload: success
 - bounded-parallel benchmark, 12 simulated repositories × 30 ms: 364.7 ms serial vs 93.7 ms parallel = 3.89×
 
-Earlier implementation screenshot artifact was downloaded and manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage.
+PR #7 head `65407e029a7cbadaf5d21b482e7754a72b8c72ab` passed full PR CI. Post-merge Windows CI on `main` commit `d22b1c97263d95d542dd0ad69670a97d516a0c58` also passed all workflow steps.
+
+A devflow-enabled browser artifact was downloaded and manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage.
 
 TDD evidence includes RED runs for the missing devflow parser/service projection and for the later nonblocking-refresh requirement before their implementations were added.
 
@@ -70,8 +72,8 @@ The v0.3 first phase maps local repository basename to devflow `[REPO]` control 
 
 ## Active work
 
-Repository Issue #6 owns the devflow read-only workflow-state integration. Cross-repository state is tracked by `kinoko34077/devflow#59`. The remaining steps are final documentation-only branch CI, PR/re-audit, merge, and post-merge verification.
+None. Repository Issue #6 is completed and PR #7 is merged. Await the next user-requested change.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is canonical until the v0.3 feature PR is merged and post-merge verification succeeds.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical implementation branch.
