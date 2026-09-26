@@ -58,10 +58,7 @@ def _sections(body: str) -> dict[str, str]:
 
 
 def _clean_value(value: str) -> str:
-    text = value.strip()
-    if len(text) >= 2 and text.startswith("`") and text.endswith("`") and "\n" not in text:
-        text = text[1:-1]
-    return text.strip()
+    return value.strip().replace("`", "").strip()
 
 
 def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, DevflowRepoState]:
