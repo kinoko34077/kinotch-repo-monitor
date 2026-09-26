@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from .config import ConfigStore
 from .discovery import discover_repositories
@@ -22,17 +21,17 @@ def smoke() -> int:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="KiNoTch. Repo Monitor")
+    parser.add_argument("--host", default="127.0.0.1", help="Loopback host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=17341, help="Local HTTP port (default: 17341)")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the default browser")
     parser.add_argument("--smoke", action="store_true", help="Run a headless smoke check and exit")
     args = parser.parse_args(argv)
     if args.smoke:
         raise SystemExit(smoke())
 
-    import tkinter as tk
-    from .ui import RepoMonitorApp
+    from .web_server import serve
 
-    root = tk.Tk()
-    RepoMonitorApp(root)
-    root.mainloop()
+    serve(host=args.host, port=args.port, open_browser=not args.no_browser)
 
 
 if __name__ == "__main__":

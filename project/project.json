@@ -2,21 +2,21 @@
   "schema_version": 1,
   "project": {
     "name": "kinotch-repo-monitor",
-    "type": "windows-gui",
-    "description": "Local Git repository activity monitor with ChatGPT chat jump links."
+    "type": "local-web",
+    "description": "Localhost Web UI for monitoring local Git repository activity and jumping back to ChatGPT chats."
   },
-  "profile": "windows-gui",
+  "profile": "local-web",
   "profiles": [
-    "windows-gui"
+    "local-web"
   ],
   "runtime": {
     "modules": []
   },
   "surfaces": {
     "cli": true,
-    "gui_windows": true,
-    "web": false,
-    "api": false,
+    "gui_windows": false,
+    "web": true,
+    "api": true,
     "mcp": false,
     "agent": false,
     "library": false
@@ -25,7 +25,7 @@
     "setup": "_run_python.cmd -m pip install -e .",
     "dev": "run.cmd",
     "test": "_run_python.cmd -m unittest discover -s tests -v",
-    "build": "_run_python.cmd -m compileall -q src tests",
+    "build": "_run_python.cmd -m compileall -q src tests tools",
     "verify": "verify.cmd",
     "smoke": "run.cmd --smoke",
     "deploy": ""
@@ -39,7 +39,7 @@
     "defaults": "defaults.json"
   },
   "notes": [
-    "Structured for KiNoTch. Repository Base windows-gui profile.",
-    "Runtime display order is derived only from locally registered/discovered repositories; devflow remains development-control authority and is not embedded into runtime state."
+    "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
+    "Runtime display state is derived only from local Git/filesystem observation; devflow remains development-control authority."
   ]
 }

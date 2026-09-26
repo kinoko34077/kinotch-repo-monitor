@@ -15,3 +15,8 @@ jobs:
       - run: cmd /c verify.cmd
       - run: cmd /c run.cmd --smoke
       - run: cmd /c _run_python.cmd tools\benchmark_refresh.py
+      - run: cmd /c _run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repo-monitor-web-render
+          path: web-render.png

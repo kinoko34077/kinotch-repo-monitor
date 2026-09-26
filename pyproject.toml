@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kinotch-repo-monitor"
-version = "0.1.0"
-description = "Lightweight Windows GUI for monitoring local Git repository activity and jumping back to ChatGPT chats."
+version = "0.2.0"
+description = "Lightweight localhost Web UI for monitoring local Git repository activity and jumping back to ChatGPT chats."
 requires-python = ">=3.11"
 dependencies = []
 
@@ -14,3 +14,6 @@ repo-monitor = "repo_monitor.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+repo_monitor = ["web/*.html", "web/*.css", "web/*.js"]

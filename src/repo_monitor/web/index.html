@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KiNoTch. Repo Monitor</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL REPOSITORY ACTIVITY</p>
+        <h1>Repo Monitor</h1>
+        <p id="status-line" class="status-line" role="status" aria-live="polite">起動中…</p>
+      </div>
+      <div class="top-actions">
+        <button id="repo-add-button" class="button button-secondary" type="button">Repo追加</button>
+        <button id="refresh-button" class="button button-secondary" type="button">更新</button>
+        <button id="rediscover-button" class="button button-primary" type="button">再検出</button>
+      </div>
+    </header>
+
+    <section class="controls" aria-label="表示フィルター">
+      <label class="search-field">
+        <span>Repo検索</span>
+        <input id="search-input" type="search" placeholder="名前・branch・path" autocomplete="off">
+      </label>
+      <label class="filter-field">
+        <span>状態</span>
+        <select id="status-filter">
+          <option value="ALL">すべて</option>
+          <option value="ACTIVE">編集中</option>
+          <option value="IDLE">一時停止</option>
+          <option value="STALE">停止中</option>
+          <option value="COMMITTED">Commit済</option>
+          <option value="CLEAN">待機</option>
+          <option value="ERROR">エラー</option>
+        </select>
+      </label>
+      <div id="visible-count" class="visible-count" aria-live="polite"></div>
+    </section>
+
+    <section id="repo-grid" class="repo-grid" aria-label="Repositories"></section>
+    <p id="empty-state" class="empty-state" hidden>条件に一致するrepoがありません。</p>
+
+    <footer class="footer-note">
+      「編集中」はローカルファイルの更新時刻から推定した活動状態です。ChatGPTが現在生成中であることを直接示すものではありません。
+    </footer>
+  </main>
+
+  <dialog id="repo-add-dialog" class="dialog">
+    <form id="repo-add-form" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ADD REPOSITORY</p>
+          <h2>Repo追加</h2>
+        </div>
+        <button id="repo-add-close" class="icon-button" type="button" aria-label="閉じる">×</button>
+      </div>
+      <label class="dialog-field">
+        <span>ローカルrepoの絶対パス</span>
+        <input id="repo-path-input" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Users\...\Documents\Programs\repo-name">
+      </label>
+      <p class="dialog-help">ブラウザの制約上、フォルダ選択ではなくローカルパスを入力します。</p>
+      <p id="repo-add-error" class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="repo-add-cancel" class="button button-secondary" type="button">キャンセル</button>
+        <button class="button button-primary" type="submit">追加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chat-dialog" class="dialog">
+    <form id="chat-form" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">CHAT LINK</p>
+          <h2 id="chat-dialog-title">Chat URL</h2>
+        </div>
+        <button id="chat-close" class="icon-button" type="button" aria-label="閉じる">×</button>
+      </div>
+      <label class="dialog-field">
+        <span>ChatGPT URL</span>
+        <input id="chat-url-input" type="url" inputmode="url" placeholder="https://chatgpt.com/c/...">
+      </label>
+      <p id="chat-dialog-error" class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="chat-clear" class="button button-quiet" type="button">登録解除</button>
+        <button class="button button-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
