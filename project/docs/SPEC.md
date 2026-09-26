@@ -14,12 +14,14 @@ Show the local activity state of many Git repositories at once in a responsive b
 - Chat URLs and local paths are saved outside the repository under the user's AppData/config directory.
 - Configuration writes use same-filesystem atomic replacement. Malformed configuration must not block startup; the damaged file is quarantined before defaults are used.
 - Discover direct-child Git repositories below configured scan roots.
+- Allow manual registration of a local Git repository by absolute path so repositories outside configured scan roots remain usable.
+- Manual registration must reject paths that are not directories containing `.git`.
 - Identify repositories by normalized local path, not basename alone. Equal basenames at different paths remain distinct repositories.
 - Sort displayed repositories deterministically by local name then path. Runtime ordering must not depend on an embedded devflow repository snapshot.
 - Poll without modifying monitored repositories. Git commands must use `GIT_OPTIONAL_LOCKS=0`.
 - Inspect repositories with bounded parallelism (maximum 4 workers by default).
 - The browser refreshes repository state without a full page reload and does not require a permanent background monitoring service.
-- Provide browser controls for rediscovery, Chat URL editing, opening the repository folder, and registration removal.
+- Provide browser controls for manual repository registration, rediscovery, Chat URL editing, opening the repository folder, and registration removal.
 - Search/filtering in the browser must not mutate persistent state.
 - Repository data must be inserted into the DOM through text/property APIs rather than unsanitized HTML.
 
@@ -30,6 +32,7 @@ Show the local activity state of many Git repositories at once in a responsive b
 - `GET /app.js`: dashboard JavaScript.
 - `GET /api/state`: current repository snapshots and refresh metadata.
 - `POST /api/rediscover`: rediscover configured roots and persist the merged registry.
+- `POST /api/repos/add`: validate and manually register a local Git repository path.
 - `POST /api/repos/<repo-key>/chat-url`: update the saved ChatGPT URL.
 - `POST /api/repos/<repo-key>/remove`: remove the current registration; rediscovery may restore it.
 - `POST /api/repos/<repo-key>/open-folder`: ask the local OS to open the repository folder.
@@ -38,7 +41,7 @@ Unknown repositories return 404. Invalid JSON/action data returns 400. Static fi
 
 ## Default thresholds
 
-- Web endpoint: `127.0.0.1:17341` (loopback only; a different local port may be selected by CLI).
+- Web endpoint: `127.0.0.1:17341` (loopback only; if occupied, the launcher may select a free loopback port).
 - browser state refresh: 2 seconds
 - ACTIVE: dirty repository with latest changed-file mtime <= 60 seconds
 - IDLE: dirty repository with latest changed-file mtime > 60 and <= 600 seconds, or dirty with unknown mtime
