@@ -63,6 +63,13 @@ class RepoMonitorService:
         with self._lock:
             return [repo.path for repo in self.config.repositories if repo.monitored]
 
+    def _monitored_identities_locked(self) -> frozenset[str]:
+        return frozenset(
+            repo_identity(repo.path)
+            for repo in self.config.repositories
+            if repo.monitored
+        )
+
     def _find_repo_locked(self, repo_key: str) -> RepoEntry:
         for repo in self.config.repositories:
             if repo_identity(repo.path) == repo_key:
@@ -195,10 +202,13 @@ class RepoMonitorService:
 
     def rediscover(self) -> dict[str, object]:
         with self._lock:
+            before = self._monitored_identities_locked()
             discovered = self._discoverer(list(self.config.scan_roots))
             self.config = merge_discovered(self.config, discovered)
+            after = self._monitored_identities_locked()
             self.store.save(self.config)
-        self.request_scan()
+        if before != after:
+            self.request_scan()
         return self.state()
 
     def add_repository(self, path: str) -> dict[str, object]:
@@ -232,7 +242,6 @@ class RepoMonitorService:
             repo = self._find_repo_locked(repo_key)
             repo.monitored = False
             self.store.save(self.config)
-        self.request_scan()
         return {"key": repo_key, "removed": True, "monitored": False}
 
     def open_folder(self, repo_key: str) -> None:
