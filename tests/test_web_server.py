@@ -2,8 +2,11 @@ import http.client
 import json
 import threading
 import unittest
+from pathlib import Path
+from unittest.mock import Mock
 from urllib.parse import quote
 
+from repo_monitor import web_server
 from repo_monitor.web_server import create_server
 
 
@@ -75,6 +78,24 @@ class WebServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("application/json", headers["Content-Type"])
         self.assertEqual(json.loads(body)["repositories"][0]["status"], "CLEAN")
+
+    def test_send_bytes_quietly_ends_when_client_disconnects(self):
+        handler_type = web_server._handler_for(self.service, Path("."))
+        disconnects = (
+            ConnectionAbortedError(10053, "connection aborted"),
+            ConnectionResetError(10054, "connection reset"),
+            BrokenPipeError(32, "broken pipe"),
+        )
+        for disconnect in disconnects:
+            with self.subTest(disconnect=type(disconnect).__name__):
+                handler = object.__new__(handler_type)
+                handler.send_response = Mock()
+                handler.send_header = Mock()
+                handler.end_headers = Mock()
+                handler.wfile = Mock()
+                handler.wfile.write.side_effect = disconnect
+                handler._send_bytes(200, b"{}", "application/json; charset=utf-8")
+                handler.wfile.write.assert_called_once_with(b"{}")
 
     def test_chat_url_route_round_trips_encoded_windows_repo_key(self):
         encoded = quote(self.service.repo_key, safe="")
