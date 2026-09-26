@@ -49,6 +49,7 @@ let currentState = { refresh_ms: 2000, repositories: [] };
 let editingRepo = null;
 let refreshTimer = null;
 let refreshing = false;
+const expandedWorkflows = new Set();
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -165,7 +166,12 @@ function renderDevflow(repo) {
   if (!repo.devflow) return null;
   const workflow = repo.devflow;
   const block = element("details", "workflow-summary");
+  block.open = expandedWorkflows.has(repo.key);
   block.addEventListener("click", (event) => event.stopPropagation());
+  block.addEventListener("toggle", () => {
+    if (block.open) expandedWorkflows.add(repo.key);
+    else expandedWorkflows.delete(repo.key);
+  });
 
   const header = element("summary", "workflow-heading");
   const badge = element(
