@@ -35,6 +35,10 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("textContent", js)
         self.assertNotIn("innerHTML", js)
 
+    def test_repository_card_click_opens_registered_chat_or_registration_dialog(self):
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        self.assertIn('card.addEventListener("click", () => openChat(repo))', js)
+
 
 if __name__ == "__main__":
     unittest.main()
