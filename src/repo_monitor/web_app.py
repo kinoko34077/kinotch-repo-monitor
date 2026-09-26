@@ -48,7 +48,7 @@ class RepoMonitorService:
         self.config = self.store.load()
 
     def _repo_copy(self, repo: RepoEntry) -> RepoEntry:
-        return RepoEntry(repo.name, repo.path, repo.chat_url)
+        return RepoEntry(repo.name, repo.path, repo.chat_url, repo.monitored)
 
     def _find_repo_locked(self, repo_key: str) -> RepoEntry:
         for repo in self.config.repositories:
@@ -76,7 +76,11 @@ class RepoMonitorService:
                 active_seconds=self.config.active_seconds,
                 stale_seconds=self.config.stale_seconds,
                 scan_roots=list(self.config.scan_roots),
-                repositories=[self._repo_copy(repo) for repo in self.config.repositories],
+                repositories=[
+                    self._repo_copy(repo)
+                    for repo in self.config.repositories
+                    if repo.monitored
+                ],
             )
 
         snapshots = self._inspector(
@@ -146,13 +150,15 @@ class RepoMonitorService:
             raise ValueError("Git repository (.git) not found")
         with self._lock:
             self.config = merge_discovered(self.config, [candidate])
-            self.store.save(self.config)
             repo = self._find_repo_locked(repo_identity(candidate))
+            repo.monitored = True
+            self.store.save(self.config)
             return {
                 "key": repo_identity(repo.path),
                 "name": repo.name,
                 "path": repo.path,
                 "chat_url": repo.chat_url,
+                "monitored": repo.monitored,
             }
 
     def set_chat_url(self, repo_key: str, chat_url: str) -> dict[str, object]:
@@ -164,12 +170,10 @@ class RepoMonitorService:
 
     def remove_repository(self, repo_key: str) -> dict[str, object]:
         with self._lock:
-            self._find_repo_locked(repo_key)
-            self.config.repositories = [
-                repo for repo in self.config.repositories if repo_identity(repo.path) != repo_key
-            ]
+            repo = self._find_repo_locked(repo_key)
+            repo.monitored = False
             self.store.save(self.config)
-        return {"key": repo_key, "removed": True}
+        return {"key": repo_key, "removed": True, "monitored": False}
 
     def open_folder(self, repo_key: str) -> None:
         with self._lock:
