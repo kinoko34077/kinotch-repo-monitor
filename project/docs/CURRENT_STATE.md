@@ -2,68 +2,80 @@
 
 ## Version
 
-v0.4 compact workflow-card / remote-repository navigation is canonical on `main` after PR #10, merged as `5b672a508a376506ed73f186a07d533dbf02e89e`.
+v0.4 localhost repository monitor is canonical on `main`. The compact workflow-card / remote-repository navigation release from PR #10 remains the feature baseline, with Windows runtime correctness follow-up PR #13 merged as `17e2481f64c9718dca62031638c2ed86d3b3371d`.
 
 ## Implemented
 
-- all v0.3 localhost Web monitoring and read-only devflow workflow overlay behavior retained
-- devflow default card presentation is compact: workflow badge + bounded one-line `Next Action` preview
-- complete `Repository State / Active Work / Next Action / Control Issue` is available only through explicit `詳細` expansion
-- expanded workflow-detail state survives the 2-second browser refresh/re-render cycle
-- local activity ages use seconds/minutes/hours for recent changes and day/month/year units for older changes
-- local `origin` is read and cached; common HTTPS, SCP-like SSH and `ssh://` network remotes are normalized to a browser-safe `remote_web_url`
-- a `Repo` action is displayed only when a safe browser URL is available
-- `file://`, Windows local paths, UNC/local absolute paths and relative local paths are not exposed as browser links
-- monitor-owned Git reads pass process-local `-c safe.directory=<repo>` so ownership-mismatched repositories can be inspected without changing global/local Git configuration
-- remote-page discovery is local-only (`git remote get-url origin`) and does not contact the remote host
-- local Git/filesystem `ACTIVE/IDLE/STALE/COMMITTED/CLEAN/ERROR` semantics remain unchanged
-- devflow workflow status remains separate from local activity and does not claim direct ChatGPT execution state
-- devflow fetch remains read-only, cached for 120 seconds, nonblocking, and stale-last-good on later fetch failure
+- local Git/filesystem state remains `ACTIVE / IDLE / STALE / COMMITTED / CLEAN / ERROR`, separate from devflow workflow state
+- devflow cards default to a compact workflow badge + bounded one-line `Next Action`; full workflow detail is explicitly expandable and survives the 2-second refresh cycle
+- old activity ages use day/month/year units instead of unbounded hour counts
+- local `origin` is cached and normalized to `remote_web_url` for common HTTPS / SCP-like SSH / `ssh://` network remotes; local/file remotes are not exposed as browser links
+- monitored repositories remain read-only
+- monitor-owned Git commands use process-local `safe.directory` only; the resolved repository path is converted to Git-compatible forward-slash form before being passed to Git
+- expected browser/client disconnects while sending localhost responses (`ConnectionAbortedError`, `ConnectionResetError`, `BrokenPipeError`) terminate that response quietly instead of producing a traceback or attempting a second response
+- public devflow Control Issue data remains read-only, cached, nonblocking, and stale-last-good on later fetch failure
 - normalized-path local repository identity and basename-based devflow mapping remain unchanged
+
+## Windows runtime bugfix evidence
+
+Issue #12 / PR #13 addressed two failures reported from the real Windows host.
+
+### Git dubious ownership
+
+Real host: `C:\Users\kinok\Documents\Programs\IDS-Composit` is owned by `CodexSandboxOffline` while Repo Monitor runs as `kinok`.
+
+Reproduction before the fix:
+- normal Git status: exit 128 with dubious ownership
+- process-local `safe.directory=C:\Users\...`: exit 128
+- process-local `safe.directory=C:/Users/...`: exit 0
+
+Root cause: `Path.resolve()` produced a Windows backslash path that did not match Git's safe-directory comparison in this invocation. `_run_git()` now uses `Path.resolve(strict=False).as_posix()` without writing global/local Git configuration.
+
+### Localhost client disconnect
+
+`/api/state` polling could be cancelled by the browser while the server was writing the response, producing `ConnectionAbortedError [WinError 10053]`. The former handler then treated that send failure as a state-generation failure and tried to send a second 500 response to the already-closed socket.
+
+The transport boundary now suppresses only expected peer-disconnect exception classes: `ConnectionAbortedError`, `ConnectionResetError`, and `BrokenPipeError`. Other application/state errors continue through the existing error handling.
+
+## Verification evidence
+
+TDD RED at test-only head `ee5f776d48584d70b1b7d2aa3e0b7cedc1f3d42d`:
+- 53 tests total
+- 1 expected failure for Windows `safe.directory` slash normalization
+- 3 expected errors for the exact disconnect exception classes
+- existing regression tests otherwise passed
+
+GREEN at implementation head `c2139e0570d2a38c07e39334b0edc0dc797d3ef4`:
+- Windows GitHub Actions: all workflow steps success
+- real Windows host isolated worktree: `verify.cmd` exit 0
+- 53/53 unit/regression tests: success
+- launcher smoke: success, 25 repositories inspected
+- localhost asset/API/devflow/compact/remote-link checks: success
+- Chrome headless browser render: success
+- real `IDS-Composit` inspection using the exact branch code: `error=''`, branch `main`, HEAD `c5f14912`, remote `https://github.com/kinoko34077/IDS-Composit`
+
+PR #13 CI passed all workflow steps. Post-merge Windows CI on canonical implementation commit `17e2481f64c9718dca62031638c2ed86d3b3371d` also passed all workflow steps.
+
+Changed-scope re-audit found no unresolved P0/P1/P2 finding in the reviewed bugfix scope.
 
 ## Existing behavior retained
 
 - loopback-only standard-library HTTP server
 - Host / Origin / JSON-only mutation boundary and restrictive CSP
 - responsive Vanilla HTML/CSS/JS dashboard
-- Chat URL registration and card click navigation
-- manual repository registration by validated absolute path
-- local direct-child discovery with inaccessible-root tolerance
-- bounded four-worker read-only Git inspection
+- Chat URL registration, remote Repo link, manual repository registration, folder opening, removal and rediscovery
+- bounded four-worker Git inspection
 - AppData-backed crash-safe config persistence
 - shared Windows Python >=3.11 resolver
 - no Node/npm runtime dependency, database, permanent background service, or monitored-repository mutation
 
-## Verification evidence
-
-Issue #9 / PR #10 were implemented with RED/GREEN coverage.
-
-RED evidence:
-- first scope test run: 52 tests with 9 expected failures for missing process-local `safe.directory`, remote URL normalization/API projection, compact workflow UI, Repo action and age units
-- refinement RED run: 52 tests with 3 expected failures for Windows local-path remote rejection and workflow-expansion persistence
-
-Final feature-head verification at `092ecd28b9f629d9dff887733282c18b684747b5`:
-- 52/52 unit/regression tests: success
-- compile check: success
-- actual `run.cmd --smoke`: success
-- localhost asset/API/devflow/compact/remote-link checks: success
-- Microsoft Edge headless browser render: success
-- screenshot artifact upload: success
-- bounded-parallel benchmark, 12 simulated repositories × 30 ms: 365.5 ms serial vs 95.3 ms parallel = 3.83×
-
-The Edge artifact was downloaded and manually inspected. A deliberately long `Active Work / Next Action` does not expand the default card, representative cards remain compact, `Repo` buttons are visible, and 480-day activity renders as `1年前`.
-
-PR #10 CI passed all workflow steps. Post-merge Windows CI on canonical `main` commit `5b672a508a376506ed73f186a07d533dbf02e89e` also passed all workflow steps.
-
-Changed-scope re-audit found no unresolved P0/P1/P2 finding in the reviewed v0.4 scope.
-
 ## Known scope boundaries
 
-The devflow mapping still uses local repository basename -> `[REPO]` control name case-insensitively. It is not a globally unique identity scheme for arbitrary duplicate basenames or renamed local folders.
+The devflow mapping still uses local repository basename -> `[REPO]` control name case-insensitively; it is not globally unique for arbitrary duplicate basenames or renamed local folders.
 
-`IMPLEMENTING` and other devflow states describe workflow phase. They do not prove that a ChatGPT turn is executing at the current instant; session lease/heartbeat remains a separate future capability.
+`IMPLEMENTING` and other devflow states describe workflow phase, not whether a ChatGPT turn is executing at that instant.
 
-Remote repository navigation assumes the configured `origin` identifies a browser-addressable forge path. It does not probe the remote host to verify that the resulting URL exists.
+Remote repository navigation does not contact the remote host to verify that a normalized forge URL exists.
 
 ## Verification entry points
 
@@ -75,8 +87,8 @@ Remote repository navigation assumes the configured `origin` identifies a browse
 
 ## Active work
 
-None. Repository Issue #9 is completed and PR #10 is merged. Await the next user-requested change.
+None. Repository Issue #12 is completed and PR #13 is merged. Await the next user-requested change.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical v0.4 implementation branch.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is canonical.
