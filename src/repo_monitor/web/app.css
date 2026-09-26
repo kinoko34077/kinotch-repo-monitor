@@ -161,6 +161,14 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
   margin-bottom: 12px;
 }
 
+.card-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
 .repo-name {
   min-width: 0;
   margin: 0;
@@ -171,14 +179,64 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
   font-weight: 760;
 }
 
-.state-badge {
+.state-badge,
+.workflow-badge {
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 999px;
-  background: var(--state-color);
   font-size: 0.72rem;
   font-weight: 760;
 }
+
+.state-badge { background: var(--state-color); }
+
+.workflow-summary {
+  margin-top: 11px;
+  padding: 9px 10px;
+  border: 1px solid #e5e8ed;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.workflow-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.workflow-badge {
+  background: #e9edf3;
+  color: #3f4752;
+}
+.workflow-badge[data-work-status="IMPLEMENTING"] { background: #d8f1df; color: #1d6a35; }
+.workflow-badge[data-work-status="AWAITING_REVIEW"] { background: #dcecff; color: #245d96; }
+.workflow-badge[data-work-status="BLOCKED"] { background: #ffdada; color: #963838; }
+.workflow-badge[data-work-status="NEEDS_REAUDIT"] { background: #eee3ff; color: #6b4592; }
+.workflow-badge[data-work-status="READY_FOR_IMPLEMENTATION"],
+.workflow-badge[data-work-status="WORK_ORDER_READY"] { background: #fff0c6; color: #795b13; }
+.workflow-badge[data-work-status="PARKED"] { background: #eceff2; color: #626973; }
+.workflow-badge[data-work-status="DONE"] { background: #e4e8ec; color: #525860; }
+
+.workflow-link {
+  color: #5b6572;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.workflow-link:hover { text-decoration: underline; }
+
+.workflow-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.workflow-meta dt { color: #838b96; }
+.workflow-meta dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .repo-meta {
   display: grid;
