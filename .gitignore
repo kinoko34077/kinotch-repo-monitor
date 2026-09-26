@@ -11,3 +11,4 @@ build/
 Thumbs.db
 *.log
 config.local.json
+.worktrees/
