@@ -29,6 +29,22 @@ def _loopback_host(host: str) -> bool:
         return False
 
 
+def _host_header_is_local(value: str) -> bool:
+    try:
+        hostname = urlsplit(f"//{value}").hostname
+    except ValueError:
+        return False
+    return bool(hostname and _loopback_host(hostname))
+
+
+def _origin_is_local(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname and _loopback_host(parsed.hostname))
+
+
 def _handler_for(service: Any, static_dir: Path):
     class RepoMonitorHandler(BaseHTTPRequestHandler):
         server_version = "KiNoTchRepoMonitor/0.2"
@@ -42,12 +58,34 @@ def _handler_for(service: Any, static_dir: Path):
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            )
             self.end_headers()
             self.wfile.write(payload)
 
         def _send_json(self, status: int, data: object) -> None:
             payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             self._send_bytes(status, payload, "application/json; charset=utf-8")
+
+        def _require_local_host(self) -> bool:
+            if _host_header_is_local(self.headers.get("Host", "")):
+                return True
+            self._send_json(HTTPStatus.FORBIDDEN, {"error": "local request required"})
+            return False
+
+        def _require_safe_post(self) -> bool:
+            origin = self.headers.get("Origin")
+            if origin and not _origin_is_local(origin):
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "local origin required"})
+                return False
+            if self.headers.get_content_type().casefold() != "application/json":
+                self._send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "application/json required"})
+                return False
+            return True
 
         def _read_json(self) -> dict[str, object]:
             raw_length = self.headers.get("Content-Length", "0")
@@ -67,6 +105,8 @@ def _handler_for(service: Any, static_dir: Path):
             return value
 
         def do_GET(self) -> None:
+            if not self._require_local_host():
+                return
             path = urlsplit(self.path).path
             if path == "/api/state":
                 try:
@@ -89,6 +129,8 @@ def _handler_for(service: Any, static_dir: Path):
             self._send_bytes(HTTPStatus.OK, payload, content_type)
 
         def do_POST(self) -> None:
+            if not self._require_local_host() or not self._require_safe_post():
+                return
             path = urlsplit(self.path).path
             try:
                 body = self._read_json()
