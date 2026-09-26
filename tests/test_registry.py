@@ -21,6 +21,27 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(merged.repositories[0].chat_url, "https://chatgpt.com/c/a")
             self.assertEqual(Path(merged.repositories[0].path), new.resolve())
 
+    def test_discovery_keeps_existing_hidden_repository_hidden_and_preserves_chat_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            cfg = AppConfig(
+                repositories=[
+                    RepoEntry(
+                        "repo",
+                        str(repo),
+                        "https://chatgpt.com/c/repo",
+                        monitored=False,
+                    )
+                ]
+            )
+
+            merged = merge_discovered(cfg, [repo])
+
+            self.assertEqual(len(merged.repositories), 1)
+            self.assertFalse(merged.repositories[0].monitored)
+            self.assertEqual(merged.repositories[0].chat_url, "https://chatgpt.com/c/repo")
+
     def test_same_name_repositories_at_different_paths_are_kept_separately(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
