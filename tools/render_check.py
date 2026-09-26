@@ -24,6 +24,7 @@ class DemoService:
         return {
             "refresh_ms": 2000,
             "updated_at": 1_790_351_000.0,
+            "devflow": {"fetched_at": 1_790_351_000.0, "stale": False, "error": None},
             "repositories": [
                 {
                     "key": r"c:\repos\demo-active",
@@ -41,6 +42,16 @@ class DemoService:
                     "behind": 0,
                     "upstream": "origin/feature/web-ui",
                     "error": "",
+                    "devflow": {
+                        "repository": "demo-active",
+                        "work_status": "IMPLEMENTING",
+                        "repository_state": "ACTIVE",
+                        "active_work": "demo-active#12 — Web UI implementation",
+                        "next_action": "VERIFY — Windows CI",
+                        "issue_number": 59,
+                        "issue_url": "https://github.com/kinoko34077/devflow/issues/59",
+                        "updated_at": "2026-09-26T03:00:00Z",
+                    },
                 },
                 {
                     "key": r"c:\repos\demo-clean",
@@ -58,6 +69,16 @@ class DemoService:
                     "behind": 0,
                     "upstream": "origin/main",
                     "error": "",
+                    "devflow": {
+                        "repository": "demo-clean",
+                        "work_status": "AUDITED",
+                        "repository_state": "ACTIVE",
+                        "active_work": "None",
+                        "next_action": "WAIT",
+                        "issue_number": 60,
+                        "issue_url": "https://github.com/kinoko34077/devflow/issues/60",
+                        "updated_at": "2026-09-26T03:00:00Z",
+                    },
                 },
             ],
         }
@@ -162,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
         state = json.loads(fetch_text(base + "/api/state"))
         if 'id="repo-grid"' not in html or "auto-fit" not in css or "/api/state" not in js:
             raise RuntimeError("frontend asset contract was not present through localhost HTTP")
+        if "workflow-badge" not in css or "DEVFLOW_STATUS_LABELS" not in js:
+            raise RuntimeError("devflow workflow UI contract was not present through localhost HTTP")
         if len(state.get("repositories", [])) != 2:
             raise RuntimeError("demo state was not available through localhost HTTP")
 
@@ -174,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("no supported Edge/Chrome/Chromium executable found")
         else:
             print("render=http-only browser=not-found")
-        print("localhost-assets=ok api-state=ok")
+        print("localhost-assets=ok api-state=ok devflow-ui=ok")
         return 0
     finally:
         server.shutdown()
