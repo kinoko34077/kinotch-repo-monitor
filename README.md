@@ -9,11 +9,16 @@
 - 画面幅に合わせて自動変形するレスポンシブカード表示
 - 名前・branch・path・devflow状態を検索
 - ローカル状態を `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / エラー` で表示
-- public `kinoko34077/devflow` の `[REPO]` Control Issueから、`Work Status / Repository State / Active Work / Next Action` を読取専用で表示
+- public `kinoko34077/devflow` の `[REPO]` Control Issueから、`Work Status / Repository State / Active Work / Next Action` を読取専用で取得
 - devflow工程を `実装中 / レビュー待ち / ブロック / 監査済 / 保留` 等の別バッジで表示
+- devflowの長文詳細は初期状態で折り畳み、工程バッジ + `Next Action` の短い1行だけを一覧表示
+- 展開したdevflow詳細は2秒更新を跨いでも展開状態を維持
 - branch、short HEAD、変更ファイル数、最終活動、ahead/behindを表示
+- 古い最終活動は数千時間表記ではなく日・月・年単位へ丸めて表示
 - ChatGPT URLを登録し、カードから直接開く
+- `origin` がHTTP(S) / SSH系のネットワークGit remoteなら、`Repo`ボタンからリポジトリページを直接開く
 - URL編集、repoフォルダを開く、登録解除、再検出
+- Git ownershipが異なるrepoも、監視コマンドごとの一時的 `safe.directory` 指定で読取可能にする（Git設定は永続変更しない）
 - 同名フォルダのrepoが複数あってもパス単位で別repoとして扱う
 - Git監視は最大4repoを並列に検査し、多数repo時の更新待ちを抑える
 - devflow取得は2分キャッシュし、2秒ごとのローカル更新とは分離
@@ -44,9 +49,23 @@ devflow側は各repositoryのopen `[REPO] <repository>` Control Issueを読み�
 - `AUDITED` → `監査済`
 - `PARKED` → `保留`
 
+カードの通常表示には工程バッジと短い`Next Action`のみを出します。`詳細`を開くと `Repository State / Active Work / Next Action / devflow Control Issue` を確認できます。
+
 `IMPLEMENTING`はdevflow上の工程状態であり、「今この瞬間にChatGPTが生成中」という意味ではありません。短時間のsession/heartbeat検出はこの版の対象外です。
 
 取得はpublic GitHub REST APIから読取専用で行い、既定では120秒キャッシュします。取得失敗時は、前回正常取得値があればそれをstaleとして維持し、ローカルGit監視は継続します。
+
+## Git remote / Repoボタン
+
+各repoの`origin`はローカルGitから読取専用で取得します。以下のようなremoteをブラウザURLへ正規化できる場合だけ`Repo`ボタンを表示します。
+
+- `https://github.com/owner/repo.git`
+- `git@github.com:owner/repo.git`
+- `ssh://git@gitlab.com/group/repo.git`
+
+`file://`、Windowsローカルパス、相対パス等はWebリンク化しません。remote取得はキャッシュするため、2秒更新ごとに追加Gitコマンドを繰り返しません。
+
+Git ownershipが現在ユーザーと異なるrepoには、各Gitコマンドへ `-c safe.directory=<repo>` を付けて読み取ります。`git config --global` / `--local` は変更しません。
 
 ## 起動
 
@@ -78,18 +97,16 @@ run.cmd
 .\run.cmd --port 18080
 ```
 
-`run.cmd` は `python` → `py -3` → `python3` の順に、実際に起動可能なPython 3.11+を選びます。Windows Python Launcherに古いAnaconda登録が残っていても、別の有効なPythonがあればそちらへフォールバックします。
+`run.cmd` は `python` → `py -3` → `python3` の順に、実際に起動可能なPython 3.11+を選びます。
 
 ## Web UI
 
-- カード一覧は画面幅に応じて自動的に列数が変わります。
-- `Repo検索`で名前・branch・path・devflow工程を絞り込めます。
+- `Repo検索`で名前・branch・path・remote URL・devflow工程を絞り込めます。
 - 状態selectでローカル活動状態を絞り込めます。
-- devflow管理対象では、ローカル状態バッジの下に工程状態と `Repository State / Active Work / Next Action` を表示します。
-- Control Issue番号からdevflow Issueを開けます。
 - `Repo追加`でscan root外のローカルGit repoを絶対パスから登録できます。
 - `Chatを開く / Chat登録`でChatGPT URLを利用します。
-- `URL編集`でリンク変更、`フォルダ`でローカルrepoを開きます。
+- `Repo`は検出できたremote repository pageを開きます。
+- `URL編集`でChatGPTリンク変更、`フォルダ`でローカルrepoを開きます。
 - `解除`はconfig上の登録を外すだけで、自動検出対象なら再検出すると復帰します。
 
 ブラウザのセキュリティ制約により、Web版の`Repo追加`はネイティブのフォルダ選択ダイアログではなく絶対パス入力方式です。backend側で `.git` の存在を検証します。
