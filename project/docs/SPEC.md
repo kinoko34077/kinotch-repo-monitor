@@ -14,6 +14,7 @@ Show the local activity state of many Git repositories at once in a responsive b
 - devflow workflow state must not replace or reinterpret the local Git/filesystem activity state.
 - For this phase, map a local repository to devflow by its local basename matching the `[REPO] <repository>` control name case-insensitively.
 - Cache one devflow open-Issue fetch for 120 seconds by default so the 2-second local refresh loop does not poll GitHub continuously.
+- Refresh devflow data in a daemon background thread. A slow or unavailable GitHub response must not block the local `/api/state` response or local Git monitoring loop.
 - If a devflow refresh fails after a successful fetch, keep the last successful devflow values and mark the devflow snapshot stale. If no devflow value is available, local monitoring must continue normally.
 - A registered ChatGPT URL can be opened directly from its repository card; an unregistered card exposes URL registration/editing.
 - Chat URLs and local paths are saved outside the repository under the user's AppData/config directory.
@@ -84,6 +85,7 @@ The monitor does not write these fields, create session heartbeats, or treat `IM
 - No Node/npm runtime or frontend build step.
 - Git inspection remains read-only.
 - devflow integration remains read-only.
+- The background devflow fetch thread is transient and in-process; it is not a permanent background Windows service.
 - No database or background Windows service.
 - Windows launcher and verification paths use the same Python-interpreter fallback rule.
 - Default serving must reject non-loopback bind addresses.
