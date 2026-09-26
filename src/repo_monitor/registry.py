@@ -1,12 +1,24 @@
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from .config import AppConfig, RepoEntry
 
 
+@lru_cache(maxsize=4096)
+def _resolved_repo_identity(absolute_path: str) -> str:
+    candidate = Path(absolute_path)
+    try:
+        candidate = candidate.resolve(strict=False)
+    except OSError:
+        candidate = candidate.absolute()
+    return os.path.normcase(str(candidate))
+
+
 def repo_identity(path: str | Path) -> str:
     expanded = os.path.expanduser(os.fspath(path))
-    return os.path.normcase(os.path.abspath(expanded))
+    absolute = os.path.abspath(expanded)
+    return _resolved_repo_identity(absolute)
 
 
 def merge_discovered(config: AppConfig, discovered: list[Path]) -> AppConfig:
