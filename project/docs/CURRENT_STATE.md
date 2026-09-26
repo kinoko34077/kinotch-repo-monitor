@@ -2,7 +2,7 @@
 
 ## Version
 
-v0.3 devflow workflow-state overlay is implemented on `feature/devflow-state` from baseline `fd7caac2f62c57ebcd97ca189e5a5530ce475f32`. `main` remains canonical until Issue #6 / its PR are verified and merged.
+v0.3 devflow workflow-state overlay is implemented and verified on `feature/devflow-state` from baseline `fd7caac2f62c57ebcd97ca189e5a5530ce475f32`. `main` remains canonical until Issue #6 / its PR are merged and post-merge verification succeeds.
 
 ## Implemented on feature branch
 
@@ -10,6 +10,7 @@ v0.3 devflow workflow-state overlay is implemented on `feature/devflow-state` fr
 - read-only public devflow Repository Control Issue fetch
 - parser for `Work Status`, `Repository State`, `Active Work`, `Next Action`, Issue number/URL/update timestamp
 - 120-second devflow cache independent of the 2-second local Git refresh
+- devflow refresh runs in a transient daemon thread so GitHub latency does not block `/api/state` or local Git monitoring
 - 30-second retry suppression after devflow fetch failure
 - last-successful devflow state retained as stale when a later fetch fails
 - local repository basename -> devflow `[REPO]` control-name mapping, case-insensitive, for this first phase
@@ -33,22 +34,31 @@ v0.3 devflow workflow-state overlay is implemented on `feature/devflow-state` fr
 - bounded four-worker read-only Git inspection
 - AppData-backed crash-safe config persistence
 - shared Windows Python >=3.11 resolver
-- no Node/npm runtime dependency, database, or background service
+- no Node/npm runtime dependency, database, or background Windows service
 
-## Verification evidence so far
+## Verification evidence
 
-Windows CI at implementation commit `ad13605f63cfab71951b6f57b0f13a9c1238940f`: success.
+Final implementation verification at branch commit `5269ff96d29df041580695c1ba564c977c3d92dc`:
 
-- full unit/regression suite at that implementation head: success
+- Windows GitHub Actions: success
+- 48 unit/regression tests: success
+- nonblocking devflow background-refresh regression test: success
 - compile check: success
-- `run.cmd --smoke`: success
-- bounded-parallel benchmark: success
-- localhost asset/API check: success
+- actual `run.cmd --smoke`: success
+- localhost asset/API/devflow UI check: success
 - Microsoft Edge headless browser render: success
 - screenshot artifact upload: success
-- downloaded screenshot manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage
+- bounded-parallel benchmark, 12 simulated repositories × 30 ms: 364.7 ms serial vs 93.7 ms parallel = 3.89×
 
-A fresh full verification is still required on the final branch head after documentation/version alignment before PR merge.
+Earlier implementation screenshot artifact was downloaded and manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage.
+
+TDD evidence includes RED runs for the missing devflow parser/service projection and for the later nonblocking-refresh requirement before their implementations were added.
+
+## Known scope boundary
+
+The v0.3 first phase maps local repository basename to devflow `[REPO]` control name case-insensitively. This is sufficient for the current managed-repository naming convention but is not a globally unique identity scheme for arbitrary duplicate basenames or renamed local folders.
+
+`IMPLEMENTING` and other devflow states describe workflow phase. They do not prove that a ChatGPT turn is executing at the current instant; session lease/heartbeat remains a separate future capability.
 
 ## Verification entry points
 
@@ -60,7 +70,7 @@ A fresh full verification is still required on the final branch head after docum
 
 ## Active work
 
-Repository Issue #6 owns the devflow read-only workflow-state integration. Cross-repository state is tracked by `kinoko34077/devflow#59`.
+Repository Issue #6 owns the devflow read-only workflow-state integration. Cross-repository state is tracked by `kinoko34077/devflow#59`. The remaining steps are final documentation-only branch CI, PR/re-audit, merge, and post-merge verification.
 
 ## Repository publication
 
