@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from .devflow_state import DevflowStateProvider
 from .web_app import RepoMonitorService
 
 STATIC_FILES = {
@@ -18,6 +19,10 @@ STATIC_FILES = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 MAX_JSON_BODY = 64 * 1024
+
+
+def _default_service() -> RepoMonitorService:
+    return RepoMonitorService(devflow_provider=DevflowStateProvider())
 
 
 def _loopback_host(host: str) -> bool:
@@ -47,7 +52,7 @@ def _origin_is_local(value: str) -> bool:
 
 def _handler_for(service: Any, static_dir: Path):
     class RepoMonitorHandler(BaseHTTPRequestHandler):
-        server_version = "KiNoTchRepoMonitor/0.2"
+        server_version = "KiNoTchRepoMonitor/0.3"
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -189,7 +194,7 @@ def create_server(
 ) -> ThreadingHTTPServer:
     if not _loopback_host(host):
         raise ValueError("Repo Monitor may only bind to a loopback address")
-    app = service or RepoMonitorService()
+    app = service or _default_service()
     assets = static_dir or (Path(__file__).resolve().parent / "web")
     return ThreadingHTTPServer((host, int(port)), _handler_for(app, assets))
 
@@ -201,7 +206,7 @@ def serve(
     open_browser: bool = True,
     service: RepoMonitorService | None = None,
 ) -> int:
-    app = service or RepoMonitorService()
+    app = service or _default_service()
     app.rediscover()
     try:
         server = create_server(host, port, app)
