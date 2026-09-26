@@ -111,6 +111,7 @@ def browser_candidates() -> list[Path]:
 
 
 def render_with_browser(browser: Path, url: str, screenshot: Path) -> None:
+    screenshot = screenshot.resolve()
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="repo-monitor-browser-") as profile:
         command = [
@@ -166,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
 
         browsers = browser_candidates()
         if browsers:
-            screenshot = args.screenshot or Path(tempfile.gettempdir()) / "repo-monitor-web-render.png"
+            screenshot = (args.screenshot or Path(tempfile.gettempdir()) / "repo-monitor-web-render.png").resolve()
             render_with_browser(browsers[0], base + "/", screenshot)
             print(f"render=browser browser={browsers[0]} screenshot={screenshot} bytes={screenshot.stat().st_size}")
         elif args.require_browser:
