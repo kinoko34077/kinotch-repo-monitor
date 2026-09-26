@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .config import AppConfig, ConfigStore, RepoEntry
-from .devflow_state import DevflowSnapshot, DevflowStateProvider
+from .devflow_state import DevflowSnapshot
 from .discovery import discover_repositories
 from .git_inspector import RepoSnapshot, activity_age_seconds, inspect_repositories
 from .registry import merge_discovered, repo_identity
@@ -35,14 +35,14 @@ class RepoMonitorService:
         discoverer: Callable[[Iterable[str]], list[Path]] = discover_repositories,
         inspector: Callable[..., list[RepoSnapshot]] = inspect_repositories,
         folder_opener: Callable[[str], None] = _default_folder_opener,
-        devflow_provider: DevflowStateProvider | object | None = None,
+        devflow_provider: object | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.store = store or ConfigStore()
         self._discoverer = discoverer
         self._inspector = inspector
         self._folder_opener = folder_opener
-        self._devflow_provider = devflow_provider or DevflowStateProvider()
+        self._devflow_provider = devflow_provider
         self._clock = clock
         self._lock = threading.RLock()
         self.config = self.store.load()
@@ -57,6 +57,8 @@ class RepoMonitorService:
         raise KeyError(repo_key)
 
     def _devflow_snapshot(self) -> DevflowSnapshot:
+        if self._devflow_provider is None:
+            return DevflowSnapshot({}, None, None, False)
         try:
             snapshot = self._devflow_provider.snapshot()  # type: ignore[attr-defined]
             if isinstance(snapshot, DevflowSnapshot):
