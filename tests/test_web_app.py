@@ -5,7 +5,41 @@ from pathlib import Path
 from repo_monitor.config import AppConfig, ConfigStore, RepoEntry
 from repo_monitor.git_inspector import RepoSnapshot
 from repo_monitor.registry import repo_identity
+from repo_monitor.scan_engine import LocalRepoSnapshot, LocalSnapshot
 from repo_monitor.web_app import RepoMonitorService
+
+
+class _FakeScanEngine:
+    def __init__(self, snapshot: LocalSnapshot | None = None):
+        self.current = snapshot or LocalSnapshot()
+        self.requests = 0
+        self.started = 0
+        self.stopped = 0
+
+    def snapshot(self):
+        return self.current
+
+    def request_scan(self):
+        self.requests += 1
+
+    def start(self):
+        self.started += 1
+
+    def stop(self, timeout=2.0):
+        self.stopped += 1
+
+
+def _snapshot(*observations: RepoSnapshot, generation: int = 1, **metadata) -> LocalSnapshot:
+    return LocalSnapshot(
+        generation=generation,
+        repositories=tuple(
+            LocalRepoSnapshot(repo_identity(observation.path), observation)
+            for observation in observations
+        ),
+        completed_at=metadata.pop("completed_at", 1000.0),
+        duration_ms=metadata.pop("duration_ms", 10),
+        **metadata,
+    )
 
 
 class WebAppServiceTests(unittest.TestCase):
@@ -25,17 +59,17 @@ class WebAppServiceTests(unittest.TestCase):
                 root,
                 [RepoEntry("same", str(first)), RepoEntry("same", str(second))],
             )
-
-            def inspector(paths, *, max_workers=4):
-                return [
-                    RepoSnapshot(path=Path(paths[0]), branch="main", head="11111111", dirty=True, changed_count=1, latest_activity_ts=990.0),
-                    RepoSnapshot(path=Path(paths[1]), branch="dev", head="22222222", dirty=False, ahead=1, upstream="origin/dev"),
-                ]
-
+            engine = _FakeScanEngine(
+                _snapshot(
+                    RepoSnapshot(path=first, branch="main", head="11111111", dirty=True, changed_count=1, latest_activity_ts=990.0),
+                    RepoSnapshot(path=second, branch="dev", head="22222222", dirty=False, ahead=1, upstream="origin/dev"),
+                )
+            )
             service = RepoMonitorService(
                 store=store,
                 discoverer=lambda _roots: [],
-                inspector=inspector,
+                scan_engine=engine,
+                inspector=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("state must not inspect Git")),
                 clock=lambda: 1000.0,
             )
             state = service.state()
@@ -44,22 +78,63 @@ class WebAppServiceTests(unittest.TestCase):
             self.assertEqual({item["key"] for item in state["repositories"]}, {repo_identity(first), repo_identity(second)})
             self.assertEqual([item["status"] for item in state["repositories"]], ["ACTIVE", "COMMITTED"])
             self.assertEqual(state["refresh_ms"], 2000)
+            self.assertEqual(state["scan"]["generation"], 1)
 
-    def test_state_projects_remote_web_url_from_git_snapshot(self):
+    def test_state_projects_remote_web_url_from_cached_git_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
             store = self.make_store(root, [RepoEntry("repo", str(repo))])
-
-            def inspector(paths, *, max_workers=4):
-                snap = RepoSnapshot(path=Path(paths[0]))
-                snap.remote_web_url = "https://github.com/kinoko34077/repo"
-                return [snap]
-
-            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], inspector=inspector)
+            snap = RepoSnapshot(path=repo)
+            snap.remote_web_url = "https://github.com/kinoko34077/repo"
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=_FakeScanEngine(_snapshot(snap)),
+            )
             item = service.state()["repositories"][0]
             self.assertEqual(item.get("remote_web_url"), "https://github.com/kinoko34077/repo")
+
+    def test_state_keeps_monitored_registry_entry_pending_until_it_has_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            store = self.make_store(root, [RepoEntry("repo", str(repo))])
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=_FakeScanEngine(LocalSnapshot(in_progress=True)),
+            )
+
+            state = service.state()
+
+            self.assertEqual(len(state["repositories"]), 1)
+            self.assertEqual(state["repositories"][0]["status"], "PENDING")
+            self.assertEqual(state["repositories"][0]["branch"], "?")
+            self.assertTrue(state["scan"]["in_progress"])
+
+    def test_state_reclassifies_cached_dirty_observation_against_current_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            store = self.make_store(root, [RepoEntry("repo", str(repo))])
+            engine = _FakeScanEngine(
+                _snapshot(RepoSnapshot(path=repo, dirty=True, changed_count=1, latest_activity_ts=990.0))
+            )
+            now = [1000.0]
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=engine,
+                clock=lambda: now[0],
+            )
+
+            self.assertEqual(service.state()["repositories"][0]["status"], "ACTIVE")
+            now[0] = 1700.0
+            self.assertEqual(service.state()["repositories"][0]["status"], "STALE")
 
     def test_chat_url_is_persisted_and_unknown_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,7 +142,7 @@ class WebAppServiceTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             store = self.make_store(root, [RepoEntry("repo", str(repo))])
-            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], inspector=lambda paths, *, max_workers=4: [RepoSnapshot(path=Path(p)) for p in paths])
+            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], scan_engine=_FakeScanEngine())
 
             service.set_chat_url(repo_identity(repo), "https://chatgpt.com/c/example")
 
@@ -86,10 +161,11 @@ class WebAppServiceTests(unittest.TestCase):
             (second / ".git").mkdir()
             store = self.make_store(root, [RepoEntry("first", str(first), "https://chatgpt.com/c/first")])
             discovered = [first, second]
+            engine = _FakeScanEngine()
             service = RepoMonitorService(
                 store=store,
                 discoverer=lambda _roots: list(discovered),
-                inspector=lambda paths, *, max_workers=4: [RepoSnapshot(path=Path(p)) for p in paths],
+                scan_engine=engine,
             )
 
             service.rediscover()
@@ -113,12 +189,14 @@ class WebAppServiceTests(unittest.TestCase):
             self.assertEqual(readded["chat_url"], "https://chatgpt.com/c/second")
             restored = next(repo for repo in store.load().repositories if repo.name == "second")
             self.assertTrue(restored.monitored)
+            self.assertGreaterEqual(engine.requests, 3)
 
     def test_manual_repository_add_validates_git_directory_and_persists(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = self.make_store(root, [])
-            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], inspector=lambda paths, *, max_workers=4: [RepoSnapshot(path=Path(p)) for p in paths])
+            engine = _FakeScanEngine()
+            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], scan_engine=engine)
             repo = root / "outside" / "manual"
             (repo / ".git").mkdir(parents=True)
 
@@ -129,6 +207,7 @@ class WebAppServiceTests(unittest.TestCase):
             persisted = store.load()
             self.assertEqual(len(persisted.repositories), 1)
             self.assertEqual(repo_identity(persisted.repositories[0].path), repo_identity(repo))
+            self.assertEqual(engine.requests, 1)
 
             with self.assertRaises(ValueError):
                 service.add_repository(str(root / "not-a-repo"))
@@ -140,15 +219,17 @@ class WebAppServiceTests(unittest.TestCase):
             repo.mkdir()
             opened: list[str] = []
             store = self.make_store(root, [RepoEntry("repo", str(repo))])
+            engine = _FakeScanEngine()
             service = RepoMonitorService(
                 store=store,
                 discoverer=lambda _roots: [],
-                inspector=lambda paths, *, max_workers=4: [RepoSnapshot(path=Path(p)) for p in paths],
+                scan_engine=engine,
                 folder_opener=opened.append,
             )
 
             service.open_folder(repo_identity(repo))
             self.assertEqual(opened, [str(repo)])
+            self.assertEqual(engine.requests, 0)
             with self.assertRaises(KeyError):
                 service.open_folder("missing")
 
