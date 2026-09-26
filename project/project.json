@@ -1,27 +1,50 @@
 {
   "schema_version": 1,
-  "repository": "kinotch-repo-monitor",
+  "project": {
+    "name": "kinotch-repo-monitor",
+    "type": "local-web",
+    "description": "Localhost Web UI for cached local Git repository activity, read-only devflow workflow state, and direct ChatGPT/repository navigation."
+  },
   "profile": "local-web",
-  "base_branch": "main",
-  "minimum_python": "3.11",
+  "profiles": [
+    "local-web"
+  ],
+  "runtime": {
+    "modules": []
+  },
+  "surfaces": {
+    "cli": true,
+    "gui_windows": false,
+    "web": true,
+    "api": true,
+    "mcp": false,
+    "agent": false,
+    "library": false
+  },
   "commands": {
+    "setup": "_run_python.cmd -m pip install -e .",
+    "dev": "run.cmd",
     "test": "_run_python.cmd -m unittest discover -s tests -v",
+    "build": "_run_python.cmd -m compileall -q src tests tools",
     "verify": "verify.cmd",
     "smoke": "run.cmd --smoke",
     "cached_state_benchmark": "_run_python.cmd tools\\benchmark_cached_state.py",
-    "browser_interaction": "_run_python.cmd tools\\browser_interaction_check.py"
+    "browser_interaction": "_run_python.cmd tools\\browser_interaction_check.py",
+    "deploy": ""
   },
-  "runtime": {
-    "language": "python",
-    "dependencies": "standard-library-only",
-    "git_required": true,
-    "node_required": false,
-    "database": false,
-    "permanent_background_service": false
+  "paths": {
+    "docs": "docs/",
+    "source": "src/",
+    "tests": "tests/",
+    "actions": "contracts/actions.json",
+    "surfaces": "contracts/surfaces.json",
+    "defaults": "defaults.json"
   },
   "notes": [
-    "v0.5 decouples cached state reads from single-owner background Git scan generations.",
-    "Default local scan worker bound is 8; browser state polling does not run Git.",
+    "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
+    "Local activity state is derived only from local Git/filesystem observation.",
+    "v0.5 serves browser state from a cached complete snapshot; one background scan engine owns Git scan generations with an 8-worker bound.",
+    "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection.",
     "RDC is not required for build, verification, or operation."
   ]
 }
