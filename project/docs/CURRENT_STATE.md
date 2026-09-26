@@ -2,9 +2,9 @@
 
 ## Version
 
-v0.5 is canonical on `main`. The implementation was squash-merged by PR #21 at `dbbfe6aa624d58526547ba3bd1364bd5b2938e93` and the merged tree passed full Windows CI run `36239567093`.
+v0.5 is canonical on `main`. The architectural implementation was squash-merged by PR #21 at `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`. Real-host follow-up Issue #16 exposed one cached-read hot-path defect; PR #23 repaired it and was squash-merged at `aba9f81da47ad87954bb9bf59f51dda7fb365634`.
 
-Issues #17 and #18 are completed by PR #21. Issue #16 is code-complete on `main` but remains open as a verification-only item because its original acceptance criteria require a post-refactor measurement on the user's real Windows 20+ repository host, which was not accessed because RDC use is explicitly prohibited. Issue #20 contains the integration/TDD/re-audit record.
+Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TDD/re-audit record.
 
 ## v0.5 implemented behavior
 
@@ -19,6 +19,7 @@ Issues #17 and #18 are completed by PR #21. Issue #16 is code-complete on `main`
 - cadence is 2 seconds after an ACTIVE/IDLE generation and 5 seconds when quiet.
 - HTTP binding occurs before rediscovery/start of scanning, so the server is not blocked on the first Git inspection cycle.
 - `POST /api/refresh` requests a scan without waiting for completion.
+- repository path identity keeps canonical `Path.resolve(strict=False)` semantics on first use and caches the result by normalized absolute textual path, removing repeated filesystem resolution from the cached-state hot path while retaining Windows 8.3 short/long path equivalence.
 
 ### Durable repository registry
 
@@ -48,40 +49,58 @@ Issues #17 and #18 are completed by PR #21. Issue #16 is code-complete on `main`
 
 ## Post-merge verification evidence
 
-Windows GitHub Actions run `36239567093` on merged implementation SHA `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`: all workflow steps successful.
+Windows GitHub Actions run `36247759111` on repaired main SHA `aba9f81da47ad87954bb9bf59f51dda7fb365634`: all workflow steps successful.
 
-- 72/72 unit/regression tests: success.
+- 73/73 unit/regression tests: success.
 - compile check: success.
 - launcher smoke: success.
 - localhost render/fetch check: success.
+- cached-state benchmark: success.
+- real-browser interaction regression: success.
 - Edge headless render + screenshot artifact: success.
-- bounded-parallel legacy benchmark: 12 repos × 30 ms simulated latency, 4 workers, serial `365.1 ms`, parallel `92.7 ms`, `3.94x` speedup.
-- cached-state benchmark with 24 repository entries:
-  - idle: median `4.19 ms`, p95 `4.48 ms` across 50 sequential reads.
-  - deliberately blocked/running scan: median `4.11 ms`, p95 `5.43 ms` across 50 sequential reads.
-  - 20 overlapping reads: maximum `507.94 ms` in this CI run.
-  - scan batches remained exactly `2` (initial generation + intentionally blocked requested generation), with `max_active_batches=1`; state reads created no extra generation.
-- real-browser interaction regression: stable card node, focus survival, text-selection survival, dialog remaining open, logical focus return, filter hide/show and same-node restoration all passed.
 
-The acceptance thresholds for sequential cached reads are <=25 ms median / <=100 ms p95. Both idle and running-scan measurements passed. The concurrent maximum is reported as load evidence and has no separate acceptance threshold in v0.5.
+The v0.5 cached-read acceptance thresholds remain <=25 ms median / <=100 ms p95.
+
+## Real Windows host verification
+
+RDC use was explicitly permitted for the final synchronization/verification continuation, so Issue #16's original real-host criterion was executed on the user's actual Windows PC.
+
+Canonical pre-repair main `ab24a1bb9043bb7b5864626c98aafb1bf8355b4f`:
+- `run.cmd --smoke`: success with 26 repositories.
+- `tools\benchmark_cached_state.py` failed twice: idle median `27.54 ms` / `26.41 ms`, p95 `32.51 ms` / `30.00 ms`.
+- isolated 24-path `repo_identity()` cost: median `20.48 ms`, p95 `30.04 ms`.
+
+Repair head `26cd768f5022fc919d0b912069184cc1b602824d` in an isolated local worktree:
+- 24-entry idle cached-state read: median `3.95 ms`, p95 `10.41 ms`.
+- deliberately blocked/running scan cached-state read: median `3.40 ms`, p95 `8.56 ms`.
+- 20 overlapping reads created no extra scan generation (`scan_batches=2`, `max_active_batches=1`).
+
+Actual 26-repository Git inspection, measured directly after duplicate temporary monitor scans were stopped:
+- 2 workers: `3438 ms`, errors `0`.
+- 4 workers: `3246 ms`, errors `0`.
+- 8 workers: `1866 ms`, errors `0`.
+
+The existing max-8 scan bound is therefore retained. Measurements taken while two temporary monitor servers were accidentally scanning simultaneously are excluded from acceptance evidence. The PC also had unrelated pytest/MCP/Git workloads; no unrelated user processes were stopped, and noisy endpoint tail-latency samples under that load are not treated as clean baseline.
 
 ## TDD / changed-scope re-audit evidence
 
-The refactor was implemented with RED -> GREEN checkpoints. Changed-scope re-audit before PR found and repaired three additional issues:
+The architectural refactor was implemented with RED -> GREEN checkpoints. Changed-scope re-audit before PR #21 found and repaired three additional issues:
 
 1. `remove_repository()` and no-op rediscovery still requested unnecessary scans. A regression test first failed with `engine.requests` actual 2 vs expected 1; implementation now scans only when monitored membership changes.
 2. raw devflow `work_status` / `repository_state` could make a card match search while giving no visible reason. A frontend contract test first failed; hidden workflow matches now produce a visible reason, while the displayed translated workflow label is treated as visible search text.
 3. the first documentation sync over-simplified `project/project.json` and removed existing Repository Base metadata. Manual diff review caught this before PR; canonical `project`, `profiles`, `surfaces`, `paths`, setup/build/deploy commands and the module docstring were restored.
 
-PR #21 received a manual changed-scope review after its PR-event CI passed. No unresolved P0/P1/P2 implementation finding was identified before merge.
+Issue #16 follow-up also used RED -> GREEN:
+- RED run `36246530570` proved repeated `repo_identity()` calls used filesystem resolution.
+- a pure-`abspath` intermediate implementation was rejected because Windows Actions exposed 8.3 short-path alias regressions.
+- final repair caches canonical resolved identity, preserving existing path semantics while removing repeated filesystem I/O.
+- branch run `36246693419` and PR-event run `36247630486` passed all steps before merge.
+
+No unresolved P0/P1/P2 implementation defect is currently known in the merged v0.5 scope.
 
 ## Verification boundary
 
-The user's real Windows 20+ repository host was not accessed in this continuation because RDC use was explicitly prohibited. Therefore the v0.5 measurements above are deterministic Windows GitHub Actions evidence, not a post-refactor measurement of the user's actual repository set.
-
-The prior real-host audit from Issue #15 remains historical evidence for the v0.4 problem state. Issue #16 stays open only for the explicit real-host post-refactor measurement criterion.
-
-Actual assistive-technology announcement behavior also remains unverified with a screen reader; the implemented accessibility contract is supported by DOM/live-region structure and browser regression rather than direct screen-reader testing.
+Actual assistive-technology announcement behavior remains unverified with a screen reader; the implemented accessibility contract is supported by DOM/live-region structure and browser regression rather than direct screen-reader testing.
 
 ## Existing boundaries retained
 
@@ -103,11 +122,11 @@ Actual assistive-technology announcement behavior also remains unverified with a
 - `_run_python.cmd tools\browser_interaction_check.py`: real-browser focus/selection/dialog/filter identity regression.
 - `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: browser render check.
 - `.github/workflows/verify.yml`: Windows CI and screenshot artifact.
-- PR #21: v0.5 implementation merge.
-- Issue #20: v0.5 implementation/re-audit evidence.
-- Issue #16: verification-only real-host follow-up.
-- Issues #17/#18: completed P1 defect records.
+- PR #21: v0.5 architectural implementation merge.
+- PR #23: real-host cached-state hot-path repair.
+- Issue #20: v0.5 integration/re-audit record.
+- Issues #16/#17/#18: completed P1 defect records.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor`. v0.5 is the canonical implementation on `main`; the implementation merge SHA is `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`.
+Published to `kinoko34077/kinotch-repo-monitor`. v0.5 is canonical on `main`; current repaired implementation SHA is `aba9f81da47ad87954bb9bf59f51dda7fb365634`.
