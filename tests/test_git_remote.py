@@ -29,6 +29,9 @@ class GitRemoteTests(unittest.TestCase):
             "ssh://git@gitlab.com/group/repo.git": "https://gitlab.com/group/repo",
             "https://example.com/team/repo": "https://example.com/team/repo",
             "file:///C:/repo": "",
+            "C:/repo": "",
+            r"C:\repo": "",
+            "../repo.git": "",
         }
         for remote, expected in cases.items():
             with self.subTest(remote=remote):
