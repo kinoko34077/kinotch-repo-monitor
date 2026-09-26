@@ -5,12 +5,8 @@ from .config import AppConfig, RepoEntry
 
 
 def repo_identity(path: str | Path) -> str:
-    candidate = Path(path).expanduser()
-    try:
-        candidate = candidate.resolve(strict=False)
-    except OSError:
-        candidate = candidate.absolute()
-    return os.path.normcase(str(candidate))
+    expanded = os.path.expanduser(os.fspath(path))
+    return os.path.normcase(os.path.abspath(expanded))
 
 
 def merge_discovered(config: AppConfig, discovered: list[Path]) -> AppConfig:
