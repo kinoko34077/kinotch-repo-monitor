@@ -52,7 +52,7 @@ def _origin_is_local(value: str) -> bool:
 
 def _handler_for(service: Any, static_dir: Path):
     class RepoMonitorHandler(BaseHTTPRequestHandler):
-        server_version = "KiNoTchRepoMonitor/0.3"
+        server_version = "KiNoTchRepoMonitor/0.5"
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -147,6 +147,10 @@ def _handler_for(service: Any, static_dir: Path):
                 return
 
             try:
+                if path == "/api/refresh":
+                    service.request_scan()
+                    self._send_json(HTTPStatus.OK, {"scan_requested": True})
+                    return
                 if path == "/api/rediscover":
                     self._send_json(HTTPStatus.OK, service.rediscover())
                     return
@@ -210,7 +214,6 @@ def serve(
     service: RepoMonitorService | None = None,
 ) -> int:
     app = service or _default_service()
-    app.rediscover()
     try:
         server = create_server(host, port, app)
     except OSError:
@@ -218,15 +221,22 @@ def serve(
             raise
         print(f"Repo Monitor: port {port} is unavailable; selecting a free loopback port")
         server = create_server(host, 0, app)
-    bound_host, bound_port = server.server_address[:2]
-    url = f"http://{bound_host}:{bound_port}/"
-    print(f"Repo Monitor: {url}")
-    if open_browser:
-        threading.Timer(0.15, lambda: webbrowser.open(url)).start()
+
     try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        app.rediscover()
+        app.start_scanning()
+        bound_host, bound_port = server.server_address[:2]
+        url = f"http://{bound_host}:{bound_port}/"
+        print(f"Repo Monitor: {url}")
+        if open_browser:
+            threading.Timer(0.15, lambda: webbrowser.open(url)).start()
+        try:
+            server.serve_forever(poll_interval=0.25)
+        except KeyboardInterrupt:
+            pass
     finally:
-        server.server_close()
+        try:
+            app.stop_scanning(timeout=2.0)
+        finally:
+            server.server_close()
     return 0

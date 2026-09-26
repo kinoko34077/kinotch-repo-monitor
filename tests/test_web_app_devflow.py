@@ -5,6 +5,8 @@ from pathlib import Path
 from repo_monitor.config import AppConfig, ConfigStore, RepoEntry
 from repo_monitor.devflow_state import DevflowRepoState, DevflowSnapshot
 from repo_monitor.git_inspector import RepoSnapshot
+from repo_monitor.registry import repo_identity
+from repo_monitor.scan_engine import LocalRepoSnapshot, LocalSnapshot
 from repo_monitor.web_app import RepoMonitorService
 
 
@@ -25,6 +27,25 @@ class _FakeDevflowProvider:
             },
             fetched_at=1000.0,
         )
+
+
+class _FakeScanEngine:
+    def __init__(self, observations):
+        self._snapshot = LocalSnapshot(
+            generation=1,
+            repositories=tuple(
+                LocalRepoSnapshot(repo_identity(item.path), item)
+                for item in observations
+            ),
+            completed_at=1000.0,
+            duration_ms=10,
+        )
+
+    def snapshot(self):
+        return self._snapshot
+
+    def request_scan(self):
+        return None
 
 
 class WebAppDevflowTests(unittest.TestCase):
@@ -48,9 +69,12 @@ class WebAppDevflowTests(unittest.TestCase):
 
             service = RepoMonitorService(
                 store=store,
-                inspector=lambda paths, *, max_workers=4: [
-                    RepoSnapshot(path=Path(path), dirty=False) for path in paths
-                ],
+                scan_engine=_FakeScanEngine(
+                    [
+                        RepoSnapshot(path=managed, dirty=False),
+                        RepoSnapshot(path=unmanaged, dirty=False),
+                    ]
+                ),
                 devflow_provider=_FakeDevflowProvider(),
                 clock=lambda: 1000.0,
             )

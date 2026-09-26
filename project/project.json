@@ -3,7 +3,7 @@
   "project": {
     "name": "kinotch-repo-monitor",
     "type": "local-web",
-    "description": "Localhost Web UI for monitoring local Git repository activity, showing read-only devflow workflow state, and jumping back to ChatGPT chats."
+    "description": "Localhost Web UI for cached local Git repository activity, read-only devflow workflow state, and direct ChatGPT/repository navigation."
   },
   "profile": "local-web",
   "profiles": [
@@ -28,6 +28,8 @@
     "build": "_run_python.cmd -m compileall -q src tests tools",
     "verify": "verify.cmd",
     "smoke": "run.cmd --smoke",
+    "cached_state_benchmark": "_run_python.cmd tools\\benchmark_cached_state.py",
+    "browser_interaction": "_run_python.cmd tools\\browser_interaction_check.py",
     "deploy": ""
   },
   "paths": {
@@ -41,6 +43,8 @@
   "notes": [
     "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
     "Local activity state is derived only from local Git/filesystem observation.",
-    "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection."
+    "v0.5 serves browser state from a cached complete snapshot; one background scan engine owns Git scan generations with an 8-worker bound.",
+    "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection.",
+    "RDC is not required for build, verification, or operation."
   ]
 }

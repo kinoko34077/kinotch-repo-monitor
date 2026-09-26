@@ -12,7 +12,8 @@
       <div>
         <p class="eyebrow">LOCAL REPOSITORY ACTIVITY</p>
         <h1>Repo Monitor</h1>
-        <p id="status-line" class="status-line" role="status" aria-live="polite">起動中…</p>
+        <p id="status-line" class="status-line" role="status" aria-live="polite">準備中…</p>
+        <p id="snapshot-line" class="snapshot-line">状態を取得中…</p>
       </div>
       <div class="top-actions">
         <button id="repo-add-button" class="button button-secondary" type="button">Repo追加</button>
@@ -35,10 +36,11 @@
           <option value="STALE">停止中</option>
           <option value="COMMITTED">Commit済</option>
           <option value="CLEAN">待機</option>
+          <option value="PENDING">確認中</option>
           <option value="ERROR">エラー</option>
         </select>
       </label>
-      <div id="visible-count" class="visible-count" aria-live="polite"></div>
+      <div id="visible-count" class="visible-count"></div>
     </section>
 
     <section id="repo-grid" class="repo-grid" aria-label="Repositories"></section>
@@ -66,7 +68,7 @@
       <p id="repo-add-error" class="dialog-error" role="alert"></p>
       <div class="dialog-actions">
         <button id="repo-add-cancel" class="button button-secondary" type="button">キャンセル</button>
-        <button class="button button-primary" type="submit">追加</button>
+        <button id="repo-add-submit" class="button button-primary" type="submit">追加</button>
       </div>
     </form>
   </dialog>
@@ -87,7 +89,7 @@
       <p id="chat-dialog-error" class="dialog-error" role="alert"></p>
       <div class="dialog-actions">
         <button id="chat-clear" class="button button-quiet" type="button">登録解除</button>
-        <button class="button button-primary" type="submit">保存</button>
+        <button id="chat-save" class="button button-primary" type="submit">保存</button>
       </div>
     </form>
   </dialog>
