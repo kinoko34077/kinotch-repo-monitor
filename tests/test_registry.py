@@ -1,12 +1,23 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from repo_monitor.config import AppConfig, RepoEntry
 from repo_monitor.registry import merge_discovered, repo_identity
 
 
 class RegistryTests(unittest.TestCase):
+    def test_repo_identity_does_not_resolve_through_filesystem(self):
+        relative = Path("nested") / ".." / "repo"
+        expected = os.path.normcase(os.path.abspath(os.path.expanduser(str(relative))))
+
+        with mock.patch("pathlib.Path.resolve", side_effect=AssertionError("filesystem resolve used")):
+            actual = repo_identity(relative)
+
+        self.assertEqual(actual, expected)
+
     def test_discovery_relocates_missing_same_name_repo_without_overwriting_chat_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
