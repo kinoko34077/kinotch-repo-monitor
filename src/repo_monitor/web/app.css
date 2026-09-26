@@ -58,11 +58,15 @@ h2 { font-size: 1.2rem; }
   font-size: 0.9rem;
 }
 
+.status-line[data-error="true"] { color: #a03939; }
+
 .top-actions, .dialog-actions {
   display: flex;
   gap: 8px;
   align-items: center;
 }
+
+.top-actions { flex-wrap: wrap; justify-content: flex-end; }
 
 .button, .icon-button {
   border: 1px solid var(--border);
@@ -225,7 +229,8 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 .dialog::backdrop { background: rgba(24, 28, 34, 0.34); }
 .dialog form { padding: 18px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
-.dialog-field { margin-bottom: 10px; }
+.dialog-field { margin-bottom: 8px; }
+.dialog-help { margin: 0 0 10px; color: var(--muted); font-size: 0.75rem; line-height: 1.45; }
 .dialog-error { min-height: 1.2em; margin: 0 0 8px; color: #a03939; font-size: 0.78rem; }
 .icon-button { width: 34px; height: 34px; font-size: 1.2rem; }
 
@@ -233,7 +238,7 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
   .app-shell { padding-top: 18px; }
   .topbar { align-items: flex-start; flex-direction: column; }
   .top-actions { width: 100%; }
-  .top-actions .button { flex: 1; }
+  .top-actions .button { flex: 1 1 auto; }
   .controls { align-items: stretch; flex-direction: column; }
   .filter-field { width: 100%; }
   .visible-count { margin: 0; padding: 0 2px; }
