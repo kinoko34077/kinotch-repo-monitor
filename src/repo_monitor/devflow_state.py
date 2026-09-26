@@ -119,29 +119,73 @@ class DevflowStateProvider:
         self._fetched_at: float | None = None
         self._last_attempt_at: float | None = None
         self._error: str | None = None
+        self._refreshing = False
+
+    def _current_locked(self, *, stale: bool | None = None) -> DevflowSnapshot:
+        if stale is None:
+            stale = bool(self._error)
+        return DevflowSnapshot(dict(self._repositories), self._fetched_at, self._error, stale)
+
+    def _refresh_due_locked(self, now: float) -> bool:
+        fresh = self._fetched_at is not None and now - self._fetched_at < self._ttl_seconds
+        retry_blocked = (
+            self._error is not None
+            and self._last_attempt_at is not None
+            and now - self._last_attempt_at < self._retry_seconds
+        )
+        return not fresh and not retry_blocked
+
+    def _apply_success(self, repositories: dict[str, DevflowRepoState], fetched_at: float) -> None:
+        with self._lock:
+            self._repositories = repositories
+            self._fetched_at = fetched_at
+            self._error = None
+            self._refreshing = False
+
+    def _apply_failure(self, exc: Exception) -> None:
+        with self._lock:
+            self._error = str(exc) or exc.__class__.__name__
+            self._refreshing = False
+
+    def _background_refresh(self, attempted_at: float) -> None:
+        try:
+            repositories = parse_control_issues(self._fetcher())
+        except Exception as exc:
+            self._apply_failure(exc)
+            return
+        self._apply_success(repositories, attempted_at)
+
+    def snapshot_nonblocking(self) -> DevflowSnapshot:
+        now = self._clock()
+        with self._lock:
+            due = self._refresh_due_locked(now)
+            if due and not self._refreshing:
+                self._refreshing = True
+                self._last_attempt_at = now
+                thread = threading.Thread(
+                    target=self._background_refresh,
+                    args=(now,),
+                    name="repo-monitor-devflow-refresh",
+                    daemon=True,
+                )
+                thread.start()
+            stale = self._fetched_at is not None and now - self._fetched_at >= self._ttl_seconds
+            return self._current_locked(stale=stale or bool(self._error))
 
     def snapshot(self) -> DevflowSnapshot:
         now = self._clock()
         with self._lock:
-            fresh = self._fetched_at is not None and now - self._fetched_at < self._ttl_seconds
-            retry_blocked = (
-                self._error is not None
-                and self._last_attempt_at is not None
-                and now - self._last_attempt_at < self._retry_seconds
-            )
-            if fresh or retry_blocked:
-                return DevflowSnapshot(dict(self._repositories), self._fetched_at, self._error, bool(self._error))
+            if not self._refresh_due_locked(now):
+                return self._current_locked()
             self._last_attempt_at = now
 
         try:
             repositories = parse_control_issues(self._fetcher())
         except Exception as exc:
+            self._apply_failure(exc)
             with self._lock:
-                self._error = str(exc) or exc.__class__.__name__
-                return DevflowSnapshot(dict(self._repositories), self._fetched_at, self._error, True)
+                return self._current_locked(stale=True)
 
+        self._apply_success(repositories, now)
         with self._lock:
-            self._repositories = repositories
-            self._fetched_at = now
-            self._error = None
-            return DevflowSnapshot(dict(self._repositories), self._fetched_at, None, False)
+            return self._current_locked(stale=False)
