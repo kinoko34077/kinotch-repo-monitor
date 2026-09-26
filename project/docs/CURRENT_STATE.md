@@ -2,11 +2,12 @@
 
 ## Version
 
-v0.2 local Web migration ready for PR on `feature/local-web-ui`
+v0.2 local Web migration verified on `feature/local-web-ui`, PR #4 open
 
 ## Implemented on branch
 
 - loopback-only standard-library HTTP server
+- local request boundary hardening: loopback Host enforcement, local Origin enforcement for browser POSTs, `application/json`-only action requests, same-origin resource policy and restrictive CSP
 - responsive Vanilla HTML/CSS/JS repository dashboard
 - local JSON state/action API
 - browser search and status filtering
@@ -32,16 +33,19 @@ v0.2 local Web migration ready for PR on `feature/local-web-ui`
 
 ## Verification evidence
 
-Verified Windows CI at branch commit `2a0517d6b1e759c1bffdbcf4f956f75470f2239d`:
+Verified Windows CI at security-hardened branch commit `5cf559af3f8804f9abee66daad164ec472e1838f`:
 
-- 38 unit/regression tests: success
+- 41 unit/regression tests: success
+- cross-origin POST rejection regression test: success
+- non-local Host rejection regression test: success
+- non-JSON action request rejection regression test: success
 - compile check: success
 - `run.cmd --smoke`: success
 - localhost asset/API check: success
 - Microsoft Edge headless browser render at 1440×900: success
 - uploaded `repo-monitor-web-render` screenshot artifact: success (54,012-byte PNG before ZIP packaging)
-- deterministic refresh benchmark, 12 simulated repositories × 30 ms: 364.9 ms serial vs 103.0 ms bounded-parallel = 3.54× for that CI run
-- rendered screenshot manually inspected from the CI artifact; dashboard controls and two representative repository cards rendered without visible layout breakage
+- deterministic refresh benchmark, 12 simulated repositories × 30 ms: 364.9 ms serial vs 93.2 ms bounded-parallel = 3.92× for that CI run
+- earlier CI screenshot artifact manually inspected; dashboard controls and representative repository cards rendered without visible layout breakage
 
 ## Verification entry points
 
@@ -53,8 +57,8 @@ Verified Windows CI at branch commit `2a0517d6b1e759c1bffdbcf4f956f75470f2239d`:
 
 ## Active work
 
-Repository Issue #3 owns the Web UI migration. Implementation is ready for PR and changed-scope re-audit; detailed findings and PR evidence remain in the Issue/PR rather than being duplicated here.
+Repository Issue #3 and PR #4 own the Web UI migration. Changed-scope re-audit found and fixed the localhost request-boundary issue; no unresolved P0/P1/P2 finding remains in the reviewed scope. Final documentation-only branch-head CI must remain green before merge.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` remains canonical until the migration PR is verified and merged.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` remains canonical until PR #4 is merged and post-merge verification succeeds.
