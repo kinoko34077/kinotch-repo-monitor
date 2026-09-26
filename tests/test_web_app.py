@@ -83,6 +83,7 @@ class WebAppServiceTests(unittest.TestCase):
             second = root / "second"
             first.mkdir()
             second.mkdir()
+            (second / ".git").mkdir()
             store = self.make_store(root, [RepoEntry("first", str(first), "https://chatgpt.com/c/first")])
             discovered = [first, second]
             service = RepoMonitorService(
@@ -96,8 +97,22 @@ class WebAppServiceTests(unittest.TestCase):
             first_entry = next(repo for repo in store.load().repositories if repo.name == "first")
             self.assertEqual(first_entry.chat_url, "https://chatgpt.com/c/first")
 
+            service.set_chat_url(repo_identity(second), "https://chatgpt.com/c/second")
             service.remove_repository(repo_identity(second))
-            self.assertEqual([repo.name for repo in store.load().repositories], ["first"])
+            hidden = next(repo for repo in store.load().repositories if repo.name == "second")
+            self.assertFalse(hidden.monitored)
+            self.assertEqual(hidden.chat_url, "https://chatgpt.com/c/second")
+            self.assertNotIn("second", {item["name"] for item in service.state()["repositories"]})
+
+            service.rediscover()
+            still_hidden = next(repo for repo in store.load().repositories if repo.name == "second")
+            self.assertFalse(still_hidden.monitored)
+            self.assertEqual(still_hidden.chat_url, "https://chatgpt.com/c/second")
+
+            readded = service.add_repository(str(second))
+            self.assertEqual(readded["chat_url"], "https://chatgpt.com/c/second")
+            restored = next(repo for repo in store.load().repositories if repo.name == "second")
+            self.assertTrue(restored.monitored)
 
     def test_manual_repository_add_validates_git_directory_and_persists(self):
         with tempfile.TemporaryDirectory() as tmp:
