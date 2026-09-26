@@ -12,6 +12,7 @@ class RepoEntry:
     name: str
     path: str
     chat_url: str = ""
+    monitored: bool = True
 
 
 @dataclass
