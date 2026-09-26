@@ -58,19 +58,22 @@ def _handler_for(service: Any, static_dir: Path):
             return
 
         def _send_bytes(self, status: int, payload: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-            self.send_header(
-                "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-                "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-            )
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+                self.send_header(
+                    "Content-Security-Policy",
+                    "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                    "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+                )
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return
 
         def _send_json(self, status: int, data: object) -> None:
             payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
