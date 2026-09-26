@@ -19,6 +19,8 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn('element("summary"', js)
         self.assertIn("active_work", js)
         self.assertIn("next_action", js)
+        self.assertIn("expandedWorkflows", js)
+        self.assertIn('block.addEventListener("toggle"', js)
 
     def test_javascript_exposes_remote_repo_action_and_human_age_units(self):
         js = (self.web_dir / "app.js").read_text(encoding="utf-8")
