@@ -49,6 +49,7 @@ let currentState = { refresh_ms: 2000, repositories: [] };
 let editingRepo = null;
 let refreshTimer = null;
 let refreshing = false;
+const expandedWorkflows = new Set();
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -61,12 +62,20 @@ function formatAge(seconds) {
   if (seconds === null || seconds === undefined) return "--";
   if (seconds < 60) return `${Math.floor(seconds)}秒前`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}分前`;
-  return `${Math.floor(seconds / 3600)}時間前`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}時間前`;
+  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)}日前`;
+  if (seconds < 86400 * 365) return `${Math.floor(seconds / (86400 * 30))}か月前`;
+  return `${Math.floor(seconds / (86400 * 365))}年前`;
 }
 
 function syncText(repo) {
   if (!repo.upstream) return "upstreamなし";
   return `↑${repo.ahead} ↓${repo.behind}`;
+}
+
+function shortText(value, limit = 72) {
+  const text = String(value || "--").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
 function safeWebUrl(value) {
@@ -92,9 +101,7 @@ async function api(path, options = {}) {
   } catch {
     payload = {};
   }
-  if (!response.ok) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
   return payload;
 }
 
@@ -104,7 +111,7 @@ function filteredRepos() {
   return currentState.repositories.filter((repo) => {
     const matchesStatus = status === "ALL" || repo.status === status;
     const workflow = repo.devflow || {};
-    const haystack = `${repo.name} ${repo.branch} ${repo.path} ${workflow.work_status || ""} ${workflow.repository_state || ""} ${workflow.active_work || ""} ${workflow.next_action || ""}`.toLocaleLowerCase();
+    const haystack = `${repo.name} ${repo.branch} ${repo.path} ${repo.remote_web_url || ""} ${workflow.work_status || ""} ${workflow.repository_state || ""} ${workflow.active_work || ""} ${workflow.next_action || ""}`.toLocaleLowerCase();
     return matchesStatus && (!query || haystack.includes(query));
   });
 }
@@ -117,6 +124,15 @@ function actionButton(label, className, handler) {
     handler();
   });
   return button;
+}
+
+function actionLink(label, className, url) {
+  const link = element("a", `button ${className || ""}`, label);
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.addEventListener("click", (event) => event.stopPropagation());
+  return link;
 }
 
 function openChatDialog(repo) {
@@ -137,10 +153,7 @@ function openAddDialog() {
 
 function openChat(repo) {
   const url = safeWebUrl(repo.chat_url);
-  if (!url) {
-    openChatDialog(repo);
-    return;
-  }
+  if (!url) return openChatDialog(repo);
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
@@ -152,29 +165,27 @@ async function repoAction(repo, action, body = {}) {
 function renderDevflow(repo) {
   if (!repo.devflow) return null;
   const workflow = repo.devflow;
-  const block = element("section", "workflow-summary");
+  const block = element("details", "workflow-summary");
+  block.open = expandedWorkflows.has(repo.key);
   block.addEventListener("click", (event) => event.stopPropagation());
+  block.addEventListener("toggle", () => {
+    if (block.open) expandedWorkflows.add(repo.key);
+    else expandedWorkflows.delete(repo.key);
+  });
 
-  const header = element("div", "workflow-heading");
+  const header = element("summary", "workflow-heading");
   const badge = element(
     "span",
     "workflow-badge",
     DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status || "devflow",
   );
   badge.dataset.workStatus = workflow.work_status || "UNKNOWN";
-  header.append(badge);
-
-  const issueUrl = safeWebUrl(workflow.issue_url);
-  if (issueUrl) {
-    const issue = element("a", "workflow-link", `#${workflow.issue_number || "?"}`);
-    issue.href = issueUrl;
-    issue.target = "_blank";
-    issue.rel = "noopener noreferrer";
-    issue.title = "devflow Control Issueを開く";
-    header.append(issue);
-  }
+  const preview = element("span", "workflow-next-preview", shortText(workflow.next_action));
+  preview.title = workflow.next_action || "";
+  header.append(badge, preview, element("span", "workflow-toggle", "詳細"));
   block.append(header);
 
+  const body = element("div", "workflow-details");
   const details = element("dl", "workflow-meta");
   const rows = [
     ["repo", workflow.repository_state || "--"],
@@ -184,7 +195,18 @@ function renderDevflow(repo) {
   for (const [label, value] of rows) {
     details.append(element("dt", "", label), element("dd", "", value));
   }
-  block.append(details);
+  body.append(details);
+
+  const issueUrl = safeWebUrl(workflow.issue_url);
+  if (issueUrl) {
+    const issue = element("a", "workflow-link", `devflow #${workflow.issue_number || "?"}`);
+    issue.href = issueUrl;
+    issue.target = "_blank";
+    issue.rel = "noopener noreferrer";
+    issue.title = "devflow Control Issueを開く";
+    body.append(issue);
+  }
+  block.append(body);
   return block;
 }
 
@@ -208,9 +230,7 @@ function renderCard(repo) {
     ["活動", formatAge(repo.activity_age_seconds)],
     ["sync", syncText(repo)],
   ];
-  for (const [label, value] of rows) {
-    meta.append(element("dt", "", label), element("dd", "", value));
-  }
+  for (const [label, value] of rows) meta.append(element("dt", "", label), element("dd", "", value));
   card.append(meta);
 
   const workflow = renderDevflow(repo);
@@ -223,8 +243,12 @@ function renderCard(repo) {
 
   const actions = element("div", "card-actions");
   const chatLabel = repo.has_chat ? "Chatを開く" : "Chat登録";
+  actions.append(actionButton(chatLabel, "chat-open button-primary", () => openChat(repo)));
+
+  const repoUrl = safeWebUrl(repo.remote_web_url);
+  if (repoUrl) actions.append(actionLink("Repo", "repo-open button-secondary", repoUrl));
+
   actions.append(
-    actionButton(chatLabel, "chat-open button-primary", () => openChat(repo)),
     actionButton("URL編集", "button-secondary", () => openChatDialog(repo)),
     actionButton("フォルダ", "button-secondary", async () => {
       try {

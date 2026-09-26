@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable, TypeVar
+from urllib.parse import urlsplit
 
 
 @dataclass
@@ -20,6 +23,7 @@ class RepoSnapshot:
     ahead: int = 0
     behind: int = 0
     upstream: str = ""
+    remote_web_url: str = ""
     error: str = ""
 
 
@@ -36,7 +40,6 @@ def parse_porcelain_z(raw: str) -> list[str]:
         status = entry[:2]
         path = entry[3:] if len(entry) >= 4 else ""
         if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
-            # In porcelain v1 -z, first pathname is destination, next is source.
             if i + 1 < len(parts) and parts[i + 1]:
                 i += 1
         if path:
@@ -78,13 +81,10 @@ def parse_status_v2(raw: str) -> dict[str, object]:
                 elif token.startswith("-"):
                     result["behind"] = int(token[1:])
         elif entry.startswith("1 "):
-            # Fixed fields end before pathname; split at most 8 times.
             fields = entry.split(" ", 8)
             if len(fields) == 9:
                 paths.append(fields[8])
         elif entry.startswith("2 "):
-            # Type 2 rename/copy: destination pathname is in this record,
-            # source pathname follows as the next NUL record.
             fields = entry.split(" ", 9)
             if len(fields) == 10:
                 paths.append(fields[9])
@@ -98,9 +98,44 @@ def parse_status_v2(raw: str) -> dict[str, object]:
     return result
 
 
+def remote_to_web_url(value: str) -> str:
+    """Convert common network Git remote forms into a browser-safe repository URL."""
+    remote = (value or "").strip()
+    if not remote:
+        return ""
+    if re.match(r"^[A-Za-z]:[\\/]", remote) or remote.startswith(("./", "../", "/", "\\\\")):
+        return ""
+
+    scp_like = re.fullmatch(r"(?:[^@/:\s]+@)?([^/:\s]+):(.+)", remote)
+    if scp_like and "://" not in remote:
+        host, path = scp_like.groups()
+        path = path.strip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return f"https://{host}/{path}" if host and path else ""
+
+    try:
+        parsed = urlsplit(remote)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https", "ssh"} or not parsed.hostname:
+        return ""
+    path = parsed.path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    if not path:
+        return ""
+    scheme = parsed.scheme if parsed.scheme in {"http", "https"} else "https"
+    host = parsed.hostname
+    if parsed.port and parsed.scheme in {"http", "https"}:
+        host = f"{host}:{parsed.port}"
+    return f"{scheme}://{host}/{path}"
+
+
 def _run_git(repo: Path, *args: str) -> str:
+    safe_repo = repo.resolve(strict=False)
     cp = subprocess.run(
-        ["git", "--no-pager", *args],
+        ["git", "-c", f"safe.directory={safe_repo}", "--no-pager", *args],
         cwd=repo,
         text=True,
         encoding="utf-8",
@@ -114,6 +149,16 @@ def _run_git(repo: Path, *args: str) -> str:
     if cp.returncode != 0:
         raise RuntimeError(cp.stderr.strip() or f"git exited {cp.returncode}")
     return cp.stdout
+
+
+@lru_cache(maxsize=512)
+def _cached_remote_web_url(repo_path: str) -> str:
+    repo = Path(repo_path)
+    try:
+        raw = _run_git(repo, "remote", "get-url", "origin").strip()
+    except Exception:
+        return ""
+    return remote_to_web_url(raw)
 
 
 def inspect_repository(path: str | Path) -> RepoSnapshot:
@@ -146,6 +191,7 @@ def inspect_repository(path: str | Path) -> RepoSnapshot:
             except OSError:
                 pass
         snap.latest_activity_ts = max(mtimes) if mtimes else None
+        snap.remote_web_url = _cached_remote_web_url(str(repo.resolve(strict=False)))
     except Exception as exc:
         snap.error = str(exc)
     return snap
@@ -160,11 +206,6 @@ def inspect_repositories(
     max_workers: int = 4,
     inspector: Callable[[str | Path], T] = inspect_repository,
 ) -> list[T]:
-    """Inspect repositories concurrently with a small fixed upper bound.
-
-    The result order matches the input order so the UI can zip snapshots back to
-    its repository entries without extra coordination state.
-    """
     path_list = list(paths)
     if not path_list:
         return []

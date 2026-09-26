@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Show the local activity state of many Git repositories at once in a responsive browser dashboard, show available devflow workflow state as a separate control-plane layer, and provide a direct jump back to the ChatGPT conversation associated with each repository.
+Show the local activity state of many Git repositories at once in a responsive browser dashboard, show available devflow workflow state as a separate control-plane layer without overwhelming the repository overview, provide a direct jump back to the ChatGPT conversation associated with each repository, and provide a direct browser link to a detected network Git remote when one exists.
 
 ## Required behavior
 
@@ -10,13 +10,17 @@ Show the local activity state of many Git repositories at once in a responsive b
 - Display repositories as responsive cards whose column count adapts to available browser width.
 - Determine local activity state from local Git status plus modified-file timestamps; do not claim direct knowledge of ChatGPT generation state.
 - Use color and text together to distinguish local `ACTIVE`, `IDLE`, `STALE`, `COMMITTED`, `CLEAN`, and `ERROR` states.
-- Read open `[REPO] <repository>` Control Issues from public `kinoko34077/devflow` and display available `Work Status`, `Repository State`, `Active Work`, and `Next Action` separately from local activity state.
+- Read open `[REPO] <repository>` Control Issues from public `kinoko34077/devflow` and keep `Work Status`, `Repository State`, `Active Work`, and `Next Action` separate from local activity state.
+- The default card must remain compact even when devflow `Active Work` / `Next Action` is long. Show the workflow badge plus a bounded one-line `Next Action` preview by default; expose complete workflow detail only through explicit expansion.
+- Preserve the user's expanded/collapsed workflow-detail state across the 2-second browser refresh/re-render cycle.
 - devflow workflow state must not replace or reinterpret the local Git/filesystem activity state.
 - For this phase, map a local repository to devflow by its local basename matching the `[REPO] <repository>` control name case-insensitively.
 - Cache one devflow open-Issue fetch for 120 seconds by default so the 2-second local refresh loop does not poll GitHub continuously.
 - Refresh devflow data in a daemon background thread. A slow or unavailable GitHub response must not block the local `/api/state` response or local Git monitoring loop.
 - If a devflow refresh fails after a successful fetch, keep the last successful devflow values and mark the devflow snapshot stale. If no devflow value is available, local monitoring must continue normally.
 - A registered ChatGPT URL can be opened directly from its repository card; an unregistered card exposes URL registration/editing.
+- Read `remote.origin.url` locally and cache the result. When a network remote can be normalized to HTTP(S), expose `remote_web_url` and a browser `Repo` action.
+- Support common HTTPS, SCP-like SSH (`git@host:owner/repo.git`) and `ssh://` remote forms. Do not expose browser links for `file://`, Windows local paths, UNC/local absolute paths, or relative local paths.
 - Chat URLs and local paths are saved outside the repository under the user's AppData/config directory.
 - Configuration writes use same-filesystem atomic replacement. Malformed configuration must not block startup; the damaged file is quarantined before defaults are used.
 - Discover direct-child Git repositories below configured scan roots.
@@ -25,9 +29,11 @@ Show the local activity state of many Git repositories at once in a responsive b
 - Identify repositories by normalized local path, not basename alone. Equal basenames at different paths remain distinct local repositories.
 - Sort displayed repositories deterministically by local name then path. Runtime ordering must not depend on an embedded devflow repository snapshot.
 - Poll without modifying monitored repositories. Git commands must use `GIT_OPTIONAL_LOCKS=0`.
+- Each monitor-owned Git read command must pass a process-local `-c safe.directory=<repo>` override so ownership-mismatched repositories can be inspected without mutating user/global/local Git configuration.
 - Inspect repositories with bounded parallelism (maximum 4 workers by default).
+- Display recent activity in seconds/minutes/hours, but use day/month/year units for older values instead of unbounded hour counts.
 - The browser refreshes repository state without a full page reload and does not require a permanent background monitoring service.
-- Provide browser controls for manual repository registration, rediscovery, Chat URL editing, opening the repository folder, and registration removal.
+- Provide browser controls for manual repository registration, rediscovery, Chat URL editing, detected remote repository navigation, opening the repository folder, and registration removal.
 - Search/filtering in the browser must not mutate persistent state.
 - Repository data must be inserted into the DOM through text/property APIs rather than unsanitized HTML.
 
@@ -36,7 +42,7 @@ Show the local activity state of many Git repositories at once in a responsive b
 - `GET /`: dashboard HTML.
 - `GET /app.css`: dashboard stylesheet.
 - `GET /app.js`: dashboard JavaScript.
-- `GET /api/state`: current local repository snapshots, devflow workflow-state overlay, and refresh metadata.
+- `GET /api/state`: current local repository snapshots, `remote_web_url`, devflow workflow-state overlay, and refresh metadata.
 - `POST /api/rediscover`: rediscover configured roots and persist the merged registry.
 - `POST /api/repos/add`: validate and manually register a local Git repository path.
 - `POST /api/repos/<repo-key>/chat-url`: update the saved ChatGPT URL.
@@ -47,7 +53,7 @@ Unknown repositories return 404. Invalid JSON/action data returns 400. Static fi
 
 ## devflow read model
 
-The first devflow integration phase is read-only.
+The devflow integration is read-only.
 
 Source:
 
@@ -82,15 +88,16 @@ The monitor does not write these fields, create session heartbeats, or treat `IM
 - Python 3.11+ standard library only at runtime.
 - Git executable is the only required external executable runtime dependency.
 - devflow integration uses the public GitHub REST endpoint and does not require a token in this phase.
+- Remote repository discovery reads local Git configuration only; it does not contact the remote host.
 - No Node/npm runtime or frontend build step.
-- Git inspection remains read-only.
+- Git inspection remains read-only and must not persist `safe.directory` or any other Git configuration change.
 - devflow integration remains read-only.
 - The background devflow fetch thread is transient and in-process; it is not a permanent background Windows service.
 - No database or background Windows service.
 - Windows launcher and verification paths use the same Python-interpreter fallback rule.
 - Default serving must reject non-loopback bind addresses.
 
-## Non-goals for v0.3
+## Non-goals for v0.4
 
 - Detecting ChatGPT's internal generation state
 - Session lease / heartbeat for individual chat workers
@@ -98,7 +105,7 @@ The monitor does not write these fields, create session heartbeats, or treat `IM
 - GitHub authentication/token management
 - Browser-extension URL capture
 - GitHub Project synchronization
+- Mutating monitored repositories or their Git configuration
 - Background service / database
-- Editing monitored repository contents from the monitor
 - Public/LAN hosting or multi-user authentication
 - WebMCP/site-tools integration

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kinotch-repo-monitor"
-version = "0.3.0"
-description = "Lightweight localhost Web UI for monitoring local Git activity, showing read-only devflow workflow state, and jumping back to ChatGPT chats."
+version = "0.4.0"
+description = "Lightweight localhost Web UI for compact local Git/devflow monitoring, ChatGPT links, and remote repository navigation."
 requires-python = ">=3.11"
 dependencies = []
 

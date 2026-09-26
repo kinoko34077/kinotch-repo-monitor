@@ -41,13 +41,14 @@ class DemoService:
                     "ahead": 0,
                     "behind": 0,
                     "upstream": "origin/feature/web-ui",
+                    "remote_web_url": "https://github.com/kinoko34077/demo-active",
                     "error": "",
                     "devflow": {
                         "repository": "demo-active",
                         "work_status": "IMPLEMENTING",
                         "repository_state": "ACTIVE",
-                        "active_work": "demo-active#12 — Web UI implementation",
-                        "next_action": "VERIFY — Windows CI",
+                        "active_work": "demo-active#12 — This intentionally long workflow description simulates a repository with several completed findings, follow-up verification notes, dependency references, and implementation evidence so the default card must remain compact instead of expanding to fit this entire text.",
+                        "next_action": "VERIFY — Run Windows CI, inspect the browser render artifact, reconcile Current State, and merge only after the compact-card boundary is visually confirmed.",
                         "issue_number": 59,
                         "issue_url": "https://github.com/kinoko34077/devflow/issues/59",
                         "updated_at": "2026-09-26T03:00:00Z",
@@ -64,17 +65,18 @@ class DemoService:
                     "head": "11223344",
                     "dirty": False,
                     "changed_count": 0,
-                    "activity_age_seconds": None,
+                    "activity_age_seconds": 86400.0 * 480,
                     "ahead": 0,
                     "behind": 0,
                     "upstream": "origin/main",
+                    "remote_web_url": "https://github.com/kinoko34077/demo-clean",
                     "error": "",
                     "devflow": {
                         "repository": "demo-clean",
                         "work_status": "AUDITED",
                         "repository_state": "ACTIVE",
                         "active_work": "None",
-                        "next_action": "WAIT",
+                        "next_action": "WAIT — next user request",
                         "issue_number": 60,
                         "issue_url": "https://github.com/kinoko34077/devflow/issues/60",
                         "updated_at": "2026-09-26T03:00:00Z",
@@ -185,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("frontend asset contract was not present through localhost HTTP")
         if "workflow-badge" not in css or "DEVFLOW_STATUS_LABELS" not in js:
             raise RuntimeError("devflow workflow UI contract was not present through localhost HTTP")
+        if "workflow-next-preview" not in js or "remote_web_url" not in js:
+            raise RuntimeError("compact workflow / remote repository UI contract was not present")
         if len(state.get("repositories", [])) != 2:
             raise RuntimeError("demo state was not available through localhost HTTP")
 
@@ -197,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("no supported Edge/Chrome/Chromium executable found")
         else:
             print("render=http-only browser=not-found")
-        print("localhost-assets=ok api-state=ok devflow-ui=ok")
+        print("localhost-assets=ok api-state=ok devflow-ui=ok compact-ui=ok remote-link=ok")
         return 0
     finally:
         server.shutdown()
