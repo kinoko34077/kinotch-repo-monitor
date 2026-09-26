@@ -2,9 +2,9 @@
 
 ## Version
 
-v0.2 local Web migration verified on `feature/local-web-ui`, PR #4 open
+v0.2 local Web is the canonical `main` surface. The Tkinter surface was replaced by PR #4.
 
-## Implemented on branch
+## Implemented
 
 - loopback-only standard-library HTTP server
 - local request boundary hardening: loopback Host enforcement, local Origin enforcement for browser POSTs, `application/json`-only action requests, same-origin resource policy and restrictive CSP
@@ -26,14 +26,18 @@ v0.2 local Web migration verified on `feature/local-web-ui`, PR #4 open
 - packaged Web assets without Node/npm runtime dependency
 - live devflow used only as development-control authority; no managed-repository snapshot embedded in runtime
 
-## Removed on branch
+## Removed in v0.2
 
 - Tkinter UI surface and Tk-specific threading tests
 - fixed desktop-window geometry/right-click-menu interaction model
 
 ## Verification evidence
 
-Verified Windows CI at security-hardened branch commit `5cf559af3f8804f9abee66daad164ec472e1838f`:
+Implementation PR #4 squash-merged as `e8df28b15407319e71962c18d433445b6e9d819a`.
+
+Post-merge Windows CI on that `main` commit: success.
+
+Security-hardened implementation verification included:
 
 - 41 unit/regression tests: success
 - cross-origin POST rejection regression test: success
@@ -43,9 +47,11 @@ Verified Windows CI at security-hardened branch commit `5cf559af3f8804f9abee66da
 - `run.cmd --smoke`: success
 - localhost asset/API check: success
 - Microsoft Edge headless browser render at 1440×900: success
-- uploaded `repo-monitor-web-render` screenshot artifact: success (54,012-byte PNG before ZIP packaging)
-- deterministic refresh benchmark, 12 simulated repositories × 30 ms: 364.9 ms serial vs 93.2 ms bounded-parallel = 3.92× for that CI run
-- earlier CI screenshot artifact manually inspected; dashboard controls and representative repository cards rendered without visible layout breakage
+- uploaded `repo-monitor-web-render` screenshot artifact: success
+- deterministic refresh benchmark, 12 simulated repositories × 30 ms: 364.9 ms serial vs 93.2 ms bounded-parallel = 3.92× on the recorded security-hardened run
+- browser-render screenshot artifact manually inspected; dashboard controls and representative repository cards rendered without visible layout breakage
+
+Changed-scope re-audit found and fixed the localhost Host/origin/content-type boundary before merge. No unresolved P0/P1/P2 finding remains in the reviewed v0.2 scope.
 
 ## Verification entry points
 
@@ -57,8 +63,8 @@ Verified Windows CI at security-hardened branch commit `5cf559af3f8804f9abee66da
 
 ## Active work
 
-Repository Issue #3 and PR #4 own the Web UI migration. Changed-scope re-audit found and fixed the localhost request-boundary issue; no unresolved P0/P1/P2 finding remains in the reviewed scope. Final documentation-only branch-head CI must remain green before merge.
+None. Repository Issue #3 is completed and PR #4 is merged. Await the next user-requested change.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` remains canonical until PR #4 is merged and post-merge verification succeeds.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical implementation branch.
