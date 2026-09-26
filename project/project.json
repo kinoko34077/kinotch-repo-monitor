@@ -3,7 +3,7 @@
   "project": {
     "name": "kinotch-repo-monitor",
     "type": "local-web",
-    "description": "Localhost Web UI for monitoring local Git repository activity and jumping back to ChatGPT chats."
+    "description": "Localhost Web UI for monitoring local Git repository activity, showing read-only devflow workflow state, and jumping back to ChatGPT chats."
   },
   "profile": "local-web",
   "profiles": [
@@ -40,6 +40,7 @@
   },
   "notes": [
     "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
-    "Runtime display state is derived only from local Git/filesystem observation; devflow remains development-control authority."
+    "Local activity state is derived only from local Git/filesystem observation.",
+    "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection."
   ]
 }
