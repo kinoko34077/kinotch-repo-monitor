@@ -2,27 +2,26 @@
 
 ## Version
 
-v0.3 devflow workflow-state overlay is canonical on `main` after PR #7, merged as `d22b1c97263d95d542dd0ad69670a97d516a0c58`.
+v0.4 compact workflow-card / remote-repository navigation is canonical on `main` after PR #10, merged as `5b672a508a376506ed73f186a07d533dbf02e89e`.
 
 ## Implemented
 
-- all v0.2 localhost Web monitoring behavior retained
-- read-only public devflow Repository Control Issue fetch
-- parser for `Work Status`, `Repository State`, `Active Work`, `Next Action`, Issue number/URL/update timestamp
-- 120-second devflow cache independent of the 2-second local Git refresh
-- devflow refresh runs in a transient daemon thread so GitHub latency does not block `/api/state` or local Git monitoring
-- 30-second retry suppression after devflow fetch failure
-- last-successful devflow state retained as stale when a later fetch fails
-- local repository basename -> devflow `[REPO]` control-name mapping, case-insensitive, for this first phase
-- `/api/state` exposes devflow metadata and per-repository devflow state independently from local Git status
-- browser renders local state and devflow workflow state as separate badges/details
-- browser search includes devflow workflow fields
-- Control Issue link opens the matching devflow Issue
-- devflow networking is enabled only at the Web-server composition root; service unit tests remain network-independent
+- all v0.3 localhost Web monitoring and read-only devflow workflow overlay behavior retained
+- devflow default card presentation is compact: workflow badge + bounded one-line `Next Action` preview
+- complete `Repository State / Active Work / Next Action / Control Issue` is available only through explicit `詳細` expansion
+- expanded workflow-detail state survives the 2-second browser refresh/re-render cycle
+- local activity ages use seconds/minutes/hours for recent changes and day/month/year units for older changes
+- local `origin` is read and cached; common HTTPS, SCP-like SSH and `ssh://` network remotes are normalized to a browser-safe `remote_web_url`
+- a `Repo` action is displayed only when a safe browser URL is available
+- `file://`, Windows local paths, UNC/local absolute paths and relative local paths are not exposed as browser links
+- monitor-owned Git reads pass process-local `-c safe.directory=<repo>` so ownership-mismatched repositories can be inspected without changing global/local Git configuration
+- remote-page discovery is local-only (`git remote get-url origin`) and does not contact the remote host
 - local Git/filesystem `ACTIVE/IDLE/STALE/COMMITTED/CLEAN/ERROR` semantics remain unchanged
-- no devflow write operations, authentication/token handling, session lease/heartbeat, or direct ChatGPT execution-state detection
+- devflow workflow status remains separate from local activity and does not claim direct ChatGPT execution state
+- devflow fetch remains read-only, cached for 120 seconds, nonblocking, and stale-last-good on later fetch failure
+- normalized-path local repository identity and basename-based devflow mapping remain unchanged
 
-## Existing v0.2 behavior retained
+## Existing behavior retained
 
 - loopback-only standard-library HTTP server
 - Host / Origin / JSON-only mutation boundary and restrictive CSP
@@ -30,37 +29,41 @@ v0.3 devflow workflow-state overlay is canonical on `main` after PR #7, merged a
 - Chat URL registration and card click navigation
 - manual repository registration by validated absolute path
 - local direct-child discovery with inaccessible-root tolerance
-- normalized-path local repository identity
 - bounded four-worker read-only Git inspection
 - AppData-backed crash-safe config persistence
 - shared Windows Python >=3.11 resolver
-- no Node/npm runtime dependency, database, or background Windows service
+- no Node/npm runtime dependency, database, permanent background service, or monitored-repository mutation
 
 ## Verification evidence
 
-Final implementation verification at branch commit `5269ff96d29df041580695c1ba564c977c3d92dc`:
+Issue #9 / PR #10 were implemented with RED/GREEN coverage.
 
-- Windows GitHub Actions: success
-- 48 unit/regression tests: success
-- nonblocking devflow background-refresh regression test: success
+RED evidence:
+- first scope test run: 52 tests with 9 expected failures for missing process-local `safe.directory`, remote URL normalization/API projection, compact workflow UI, Repo action and age units
+- refinement RED run: 52 tests with 3 expected failures for Windows local-path remote rejection and workflow-expansion persistence
+
+Final feature-head verification at `092ecd28b9f629d9dff887733282c18b684747b5`:
+- 52/52 unit/regression tests: success
 - compile check: success
 - actual `run.cmd --smoke`: success
-- localhost asset/API/devflow UI check: success
+- localhost asset/API/devflow/compact/remote-link checks: success
 - Microsoft Edge headless browser render: success
 - screenshot artifact upload: success
-- bounded-parallel benchmark, 12 simulated repositories × 30 ms: 364.7 ms serial vs 93.7 ms parallel = 3.89×
+- bounded-parallel benchmark, 12 simulated repositories × 30 ms: 365.5 ms serial vs 95.3 ms parallel = 3.83×
 
-PR #7 head `65407e029a7cbadaf5d21b482e7754a72b8c72ab` passed full PR CI. Post-merge Windows CI on `main` commit `d22b1c97263d95d542dd0ad69670a97d516a0c58` also passed all workflow steps.
+The Edge artifact was downloaded and manually inspected. A deliberately long `Active Work / Next Action` does not expand the default card, representative cards remain compact, `Repo` buttons are visible, and 480-day activity renders as `1年前`.
 
-A devflow-enabled browser artifact was downloaded and manually inspected: local `編集中` + devflow `実装中`, and local `待機` + devflow `監査済` render as separate layers without visible layout breakage.
+PR #10 CI passed all workflow steps. Post-merge Windows CI on canonical `main` commit `5b672a508a376506ed73f186a07d533dbf02e89e` also passed all workflow steps.
 
-TDD evidence includes RED runs for the missing devflow parser/service projection and for the later nonblocking-refresh requirement before their implementations were added.
+Changed-scope re-audit found no unresolved P0/P1/P2 finding in the reviewed v0.4 scope.
 
-## Known scope boundary
+## Known scope boundaries
 
-The v0.3 first phase maps local repository basename to devflow `[REPO]` control name case-insensitively. This is sufficient for the current managed-repository naming convention but is not a globally unique identity scheme for arbitrary duplicate basenames or renamed local folders.
+The devflow mapping still uses local repository basename -> `[REPO]` control name case-insensitively. It is not a globally unique identity scheme for arbitrary duplicate basenames or renamed local folders.
 
 `IMPLEMENTING` and other devflow states describe workflow phase. They do not prove that a ChatGPT turn is executing at the current instant; session lease/heartbeat remains a separate future capability.
+
+Remote repository navigation assumes the configured `origin` identifies a browser-addressable forge path. It does not probe the remote host to verify that the resulting URL exists.
 
 ## Verification entry points
 
@@ -72,8 +75,8 @@ The v0.3 first phase maps local repository basename to devflow `[REPO]` control 
 
 ## Active work
 
-None. Repository Issue #6 is completed and PR #7 is merged. Await the next user-requested change.
+None. Repository Issue #9 is completed and PR #10 is merged. Await the next user-requested change.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical implementation branch.
+Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is the canonical v0.4 implementation branch.
