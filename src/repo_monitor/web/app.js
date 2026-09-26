@@ -4,6 +4,7 @@ const STATUS_LABELS = {
   STALE: "停止中",
   COMMITTED: "Commit済",
   CLEAN: "待機",
+  PENDING: "確認中",
   ERROR: "エラー",
 };
 
@@ -45,17 +46,24 @@ const ui = {
   chatClose: document.getElementById("chat-close"),
 };
 
-let currentState = { refresh_ms: 2000, repositories: [] };
-let editingRepo = null;
+let currentState = { refresh_ms: 2000, scan: {}, repositories: [] };
+let editingRepoKey = null;
+let dialogOpener = null;
 let refreshTimer = null;
 let refreshing = false;
 const expandedWorkflows = new Set();
+const cardViews = new Map();
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function setText(node, value) {
+  const text = String(value ?? "");
+  if (node.textContent !== text) node.textContent = text;
 }
 
 function formatAge(seconds) {
@@ -105,15 +113,17 @@ async function api(path, options = {}) {
   return payload;
 }
 
-function filteredRepos() {
+function repoByKey(repoKey) {
+  return currentState.repositories.find((repo) => repo.key === repoKey) || null;
+}
+
+function repoMatches(repo) {
   const query = ui.search.value.trim().toLocaleLowerCase();
   const status = ui.filter.value;
-  return currentState.repositories.filter((repo) => {
-    const matchesStatus = status === "ALL" || repo.status === status;
-    const workflow = repo.devflow || {};
-    const haystack = `${repo.name} ${repo.branch} ${repo.path} ${repo.remote_web_url || ""} ${workflow.work_status || ""} ${workflow.repository_state || ""} ${workflow.active_work || ""} ${workflow.next_action || ""}`.toLocaleLowerCase();
-    return matchesStatus && (!query || haystack.includes(query));
-  });
+  const matchesStatus = status === "ALL" || repo.status === status;
+  const workflow = repo.devflow || {};
+  const haystack = `${repo.name} ${repo.branch} ${repo.path} ${repo.remote_web_url || ""} ${workflow.work_status || ""} ${workflow.repository_state || ""} ${workflow.active_work || ""} ${workflow.next_action || ""}`.toLocaleLowerCase();
+  return matchesStatus && (!query || haystack.includes(query));
 }
 
 function actionButton(label, className, handler) {
@@ -126,17 +136,30 @@ function actionButton(label, className, handler) {
   return button;
 }
 
-function actionLink(label, className, url) {
+function actionLink(label, className) {
   const link = element("a", `button ${className || ""}`, label);
-  link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.addEventListener("click", (event) => event.stopPropagation());
   return link;
 }
 
-function openChatDialog(repo) {
-  editingRepo = repo;
+function restoreDialogFocus() {
+  const opener = dialogOpener;
+  dialogOpener = null;
+  if (!opener) return;
+  const view = cardViews.get(opener.repoKey);
+  const target = view?.actions?.[opener.action];
+  if (target && !view.card.hidden && !target.hidden && target.isConnected) {
+    target.focus();
+    return;
+  }
+  ui.search.focus();
+}
+
+function openChatDialog(repo, action = "chat-edit") {
+  editingRepoKey = repo.key;
+  dialogOpener = { repoKey: repo.key, action };
   ui.dialogTitle.textContent = `${repo.name} のChat URL`;
   ui.chatInput.value = repo.chat_url || "";
   ui.dialogError.textContent = "";
@@ -151,9 +174,9 @@ function openAddDialog() {
   window.setTimeout(() => ui.addPath.focus(), 0);
 }
 
-function openChat(repo) {
+function openChat(repo, action = "chat") {
   const url = safeWebUrl(repo.chat_url);
-  if (!url) return openChatDialog(repo);
+  if (!url) return openChatDialog(repo, action);
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
@@ -162,122 +185,179 @@ async function repoAction(repo, action, body = {}) {
   return api(`/api/repos/${key}/${action}`, { method: "POST", body });
 }
 
-function renderDevflow(repo) {
-  if (!repo.devflow) return null;
-  const workflow = repo.devflow;
+function ensureCardView(repo) {
+  const existing = cardViews.get(repo.key);
+  if (existing) return existing;
+
+  const view = { repo, actions: {} };
+  const card = element("article", "repo-card");
+  view.card = card;
+  card.dataset.repoKey = repo.key;
+  card.addEventListener("click", () => openChat(view.repo));
+
+  const heading = element("div", "card-heading");
+  view.name = element("h2", "repo-name");
+  const badges = element("div", "card-badges");
+  view.stateBadge = element("span", "state-badge");
+  badges.append(view.stateBadge);
+  heading.append(view.name, badges);
+  card.append(heading);
+
+  const meta = element("dl", "repo-meta");
+  const addMeta = (label) => {
+    const value = element("dd", "");
+    meta.append(element("dt", "", label), value);
+    return value;
+  };
+  view.branch = addMeta("branch");
+  view.changed = addMeta("変更");
+  view.activity = addMeta("活動");
+  view.sync = addMeta("sync");
+  card.append(meta);
+
   const block = element("details", "workflow-summary");
+  view.workflow = block;
+  block.hidden = true;
   block.open = expandedWorkflows.has(repo.key);
   block.addEventListener("click", (event) => event.stopPropagation());
   block.addEventListener("toggle", () => {
     if (block.open) expandedWorkflows.add(repo.key);
     else expandedWorkflows.delete(repo.key);
   });
+  const workflowHeader = element("summary", "workflow-heading");
+  view.workflowBadge = element("span", "workflow-badge");
+  view.workflowPreview = element("span", "workflow-next-preview");
+  workflowHeader.append(view.workflowBadge, view.workflowPreview, element("span", "workflow-toggle", "詳細"));
+  block.append(workflowHeader);
+  const workflowBody = element("div", "workflow-details");
+  const workflowMeta = element("dl", "workflow-meta");
+  const addWorkflowMeta = (label) => {
+    const value = element("dd", "");
+    workflowMeta.append(element("dt", "", label), value);
+    return value;
+  };
+  view.workflowRepo = addWorkflowMeta("repo");
+  view.workflowWork = addWorkflowMeta("作業");
+  view.workflowNext = addWorkflowMeta("次");
+  workflowBody.append(workflowMeta);
+  view.workflowLink = element("a", "workflow-link");
+  view.workflowLink.target = "_blank";
+  view.workflowLink.rel = "noopener noreferrer";
+  view.workflowLink.title = "devflow Control Issueを開く";
+  workflowBody.append(view.workflowLink);
+  block.append(workflowBody);
+  card.append(block);
 
-  const header = element("summary", "workflow-heading");
-  const badge = element(
-    "span",
-    "workflow-badge",
-    DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status || "devflow",
-  );
-  badge.dataset.workStatus = workflow.work_status || "UNKNOWN";
-  const preview = element("span", "workflow-next-preview", shortText(workflow.next_action));
-  preview.title = workflow.next_action || "";
-  header.append(badge, preview, element("span", "workflow-toggle", "詳細"));
-  block.append(header);
-
-  const body = element("div", "workflow-details");
-  const details = element("dl", "workflow-meta");
-  const rows = [
-    ["repo", workflow.repository_state || "--"],
-    ["作業", workflow.active_work || "--"],
-    ["次", workflow.next_action || "--"],
-  ];
-  for (const [label, value] of rows) {
-    details.append(element("dt", "", label), element("dd", "", value));
-  }
-  body.append(details);
-
-  const issueUrl = safeWebUrl(workflow.issue_url);
-  if (issueUrl) {
-    const issue = element("a", "workflow-link", `devflow #${workflow.issue_number || "?"}`);
-    issue.href = issueUrl;
-    issue.target = "_blank";
-    issue.rel = "noopener noreferrer";
-    issue.title = "devflow Control Issueを開く";
-    body.append(issue);
-  }
-  block.append(body);
-  return block;
-}
-
-function renderCard(repo) {
-  const card = element("article", "repo-card");
-  card.dataset.status = repo.status;
-  card.addEventListener("click", () => openChat(repo));
-
-  const heading = element("div", "card-heading");
-  const name = element("h2", "repo-name", repo.name);
-  name.title = repo.path;
-  const badges = element("div", "card-badges");
-  badges.append(element("span", "state-badge", STATUS_LABELS[repo.status] || repo.status));
-  heading.append(name, badges);
-  card.append(heading);
-
-  const meta = element("dl", "repo-meta");
-  const rows = [
-    ["branch", `${repo.branch || "?"}  ${repo.head || "?"}`],
-    ["変更", `${repo.changed_count ?? 0}`],
-    ["活動", formatAge(repo.activity_age_seconds)],
-    ["sync", syncText(repo)],
-  ];
-  for (const [label, value] of rows) meta.append(element("dt", "", label), element("dd", "", value));
-  card.append(meta);
-
-  const workflow = renderDevflow(repo);
-  if (workflow) card.append(workflow);
-
-  if (repo.error) card.append(element("p", "repo-error", repo.error));
-  const path = element("p", "repo-path", repo.path);
-  path.title = repo.path;
-  card.append(path);
+  view.error = element("p", "repo-error");
+  view.error.hidden = true;
+  card.append(view.error);
+  view.path = element("p", "repo-path");
+  card.append(view.path);
 
   const actions = element("div", "card-actions");
-  const chatLabel = repo.has_chat ? "Chatを開く" : "Chat登録";
-  actions.append(actionButton(chatLabel, "chat-open button-primary", () => openChat(repo)));
-
-  const repoUrl = safeWebUrl(repo.remote_web_url);
-  if (repoUrl) actions.append(actionLink("Repo", "repo-open button-secondary", repoUrl));
-
+  view.actions.chat = actionButton("Chat登録", "chat-open button-primary", () => openChat(view.repo, "chat"));
+  view.actions.repo = actionLink("Repo", "repo-open button-secondary");
+  view.actions.edit = actionButton("URL編集", "button-secondary", () => openChatDialog(view.repo, "edit"));
+  view.actions.folder = actionButton("フォルダ", "button-secondary", async () => {
+    try {
+      await repoAction(view.repo, "open-folder");
+      setStatus(`${view.repo.name} のフォルダを開きました`);
+    } catch (error) {
+      setStatus(`フォルダを開けません: ${error.message}`, true);
+    }
+  });
+  view.actions.remove = actionButton("解除", "button-secondary", async () => {
+    if (!window.confirm(`${view.repo.name} を一覧から解除しますか？ 再検出で復帰します。`)) return;
+    try {
+      await repoAction(view.repo, "remove");
+      await refreshState({ quiet: true });
+    } catch (error) {
+      setStatus(`登録解除に失敗: ${error.message}`, true);
+    }
+  });
   actions.append(
-    actionButton("URL編集", "button-secondary", () => openChatDialog(repo)),
-    actionButton("フォルダ", "button-secondary", async () => {
-      try {
-        await repoAction(repo, "open-folder");
-        setStatus(`${repo.name} のフォルダを開きました`);
-      } catch (error) {
-        setStatus(`フォルダを開けません: ${error.message}`, true);
-      }
-    }),
-    actionButton("解除", "button-secondary", async () => {
-      if (!window.confirm(`${repo.name} を一覧から解除しますか？ 再検出で復帰します。`)) return;
-      try {
-        await repoAction(repo, "remove");
-        await refreshState({ quiet: true });
-      } catch (error) {
-        setStatus(`登録解除に失敗: ${error.message}`, true);
-      }
-    }),
+    view.actions.chat,
+    view.actions.repo,
+    view.actions.edit,
+    view.actions.folder,
+    view.actions.remove,
   );
   card.append(actions);
-  return card;
+
+  cardViews.set(repo.key, view);
+  return view;
+}
+
+function updateCardView(view, repo) {
+  view.repo = repo;
+  view.card.dataset.status = repo.status;
+  setText(view.name, repo.name);
+  view.name.title = repo.path;
+  setText(view.stateBadge, STATUS_LABELS[repo.status] || repo.status);
+  setText(view.branch, `${repo.branch || "?"}  ${repo.head || "?"}`);
+  setText(view.changed, `${repo.changed_count ?? 0}`);
+  setText(view.activity, formatAge(repo.activity_age_seconds));
+  setText(view.sync, syncText(repo));
+
+  const workflow = repo.devflow;
+  view.workflow.hidden = !workflow;
+  if (workflow) {
+    setText(view.workflowBadge, DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status || "devflow");
+    view.workflowBadge.dataset.workStatus = workflow.work_status || "UNKNOWN";
+    setText(view.workflowPreview, shortText(workflow.next_action));
+    view.workflowPreview.title = workflow.next_action || "";
+    setText(view.workflowRepo, workflow.repository_state || "--");
+    setText(view.workflowWork, workflow.active_work || "--");
+    setText(view.workflowNext, workflow.next_action || "--");
+    const issueUrl = safeWebUrl(workflow.issue_url);
+    view.workflowLink.hidden = !issueUrl;
+    if (issueUrl) {
+      view.workflowLink.href = issueUrl;
+      setText(view.workflowLink, `devflow #${workflow.issue_number || "?"}`);
+    }
+  }
+
+  view.error.hidden = !repo.error;
+  if (repo.error) setText(view.error, repo.error);
+  setText(view.path, repo.path);
+  view.path.title = repo.path;
+
+  setText(view.actions.chat, repo.has_chat ? "Chatを開く" : "Chat登録");
+  const repoUrl = safeWebUrl(repo.remote_web_url);
+  view.actions.repo.hidden = !repoUrl;
+  if (repoUrl) view.actions.repo.href = repoUrl;
+}
+
+function reconcileCards() {
+  const liveKeys = new Set(currentState.repositories.map((repo) => repo.key));
+  for (const [key, view] of cardViews) {
+    if (liveKeys.has(key)) continue;
+    if (view.card.contains(document.activeElement)) ui.search.focus();
+    view.card.remove();
+    cardViews.delete(key);
+    expandedWorkflows.delete(key);
+  }
+
+  let cursor = ui.grid.firstElementChild;
+  let visible = 0;
+  for (const repo of currentState.repositories) {
+    const view = cardViews.get(repo.key) || ensureCardView(repo);
+    updateCardView(view, repo);
+    if (view.card !== cursor) ui.grid.insertBefore(view.card, cursor);
+    cursor = view.card.nextElementSibling;
+
+    const shouldHide = !repoMatches(repo);
+    if (shouldHide && view.card.contains(document.activeElement)) ui.search.focus();
+    view.card.hidden = shouldHide;
+    if (!shouldHide) visible += 1;
+  }
+
+  ui.count.textContent = `${visible} / ${currentState.repositories.length} repos`;
+  ui.empty.hidden = visible !== 0;
 }
 
 function render() {
-  ui.grid.replaceChildren();
-  const repos = filteredRepos();
-  for (const repo of repos) ui.grid.append(renderCard(repo));
-  ui.count.textContent = `${repos.length} / ${currentState.repositories.length} repos`;
-  ui.empty.hidden = repos.length !== 0;
+  reconcileCards();
 }
 
 function setStatus(message, isError = false) {
@@ -295,6 +375,8 @@ function scheduleRefresh() {
 function refreshStatusText() {
   const updated = new Date((currentState.updated_at || Date.now() / 1000) * 1000);
   let text = `最終更新 ${updated.toLocaleTimeString()} / ${currentState.repositories.length} repos`;
+  if (currentState.scan?.in_progress) text += " / スキャン中";
+  if (currentState.scan?.error) text += ` / scan: ${currentState.scan.error}`;
   if (currentState.devflow?.stale) text += " / devflow取得失敗（前回値を表示）";
   return text;
 }
@@ -306,7 +388,10 @@ async function refreshState({ quiet = false } = {}) {
   try {
     currentState = await api("/api/state");
     render();
-    setStatus(refreshStatusText(), Boolean(currentState.devflow?.error && !currentState.devflow?.fetched_at));
+    setStatus(
+      refreshStatusText(),
+      Boolean(currentState.scan?.error || (currentState.devflow?.error && !currentState.devflow?.fetched_at)),
+    );
   } catch (error) {
     setStatus(`更新失敗: ${error.message}`, true);
   } finally {
@@ -352,11 +437,13 @@ ui.search.addEventListener("input", render);
 ui.filter.addEventListener("change", render);
 document.addEventListener("visibilitychange", scheduleRefresh);
 
+ui.dialog.addEventListener("close", restoreDialogFocus);
 ui.chatClose.addEventListener("click", () => ui.dialog.close());
 ui.chatClear.addEventListener("click", async () => {
-  if (!editingRepo) return;
+  const repo = repoByKey(editingRepoKey);
+  if (!repo) return;
   try {
-    await repoAction(editingRepo, "chat-url", { chat_url: "" });
+    await repoAction(repo, "chat-url", { chat_url: "" });
     ui.dialog.close();
     await refreshState({ quiet: true });
   } catch (error) {
@@ -365,14 +452,15 @@ ui.chatClear.addEventListener("click", async () => {
 });
 ui.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!editingRepo) return;
+  const repo = repoByKey(editingRepoKey);
+  if (!repo) return;
   const value = ui.chatInput.value.trim();
   if (value && !safeWebUrl(value)) {
     ui.dialogError.textContent = "http:// または https:// のURLを入力してください。";
     return;
   }
   try {
-    await repoAction(editingRepo, "chat-url", { chat_url: value });
+    await repoAction(repo, "chat-url", { chat_url: value });
     ui.dialog.close();
     await refreshState({ quiet: true });
   } catch (error) {
