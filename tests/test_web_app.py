@@ -45,6 +45,22 @@ class WebAppServiceTests(unittest.TestCase):
             self.assertEqual([item["status"] for item in state["repositories"]], ["ACTIVE", "COMMITTED"])
             self.assertEqual(state["refresh_ms"], 2000)
 
+    def test_state_projects_remote_web_url_from_git_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            store = self.make_store(root, [RepoEntry("repo", str(repo))])
+
+            def inspector(paths, *, max_workers=4):
+                snap = RepoSnapshot(path=Path(paths[0]))
+                snap.remote_web_url = "https://github.com/kinoko34077/repo"
+                return [snap]
+
+            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], inspector=inspector)
+            item = service.state()["repositories"][0]
+            self.assertEqual(item.get("remote_web_url"), "https://github.com/kinoko34077/repo")
+
     def test_chat_url_is_persisted_and_unknown_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
