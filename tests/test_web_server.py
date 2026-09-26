@@ -127,6 +127,33 @@ class WebServerTests(unittest.TestCase):
         self.assertEqual(self.request("POST", f"/api/repos/{encoded}/remove", b"{}", {"Content-Type": "application/json"})[0], 200)
         self.assertTrue(self.service.removed)
 
+    def test_nonlocal_host_header_is_rejected_for_get(self):
+        status, _, body = self.request("GET", "/api/state", headers={"Host": "attacker.example"})
+        self.assertEqual(status, 403)
+        self.assertEqual(json.loads(body)["error"], "local request required")
+
+    def test_cross_origin_post_is_rejected_before_action(self):
+        status, _, body = self.request(
+            "POST",
+            "/api/rediscover",
+            b"{}",
+            {"Content-Type": "application/json", "Origin": "https://attacker.example"},
+        )
+        self.assertEqual(status, 403)
+        self.assertFalse(self.service.rediscovered)
+        self.assertEqual(json.loads(body)["error"], "local origin required")
+
+    def test_non_json_post_is_rejected_before_action(self):
+        status, _, body = self.request(
+            "POST",
+            "/api/rediscover",
+            b"{}",
+            {"Content-Type": "text/plain"},
+        )
+        self.assertEqual(status, 415)
+        self.assertFalse(self.service.rediscovered)
+        self.assertEqual(json.loads(body)["error"], "application/json required")
+
     def test_unknown_paths_and_static_path_traversal_are_not_served(self):
         self.assertEqual(self.request("GET", "/api/nope")[0], 404)
         self.assertEqual(self.request("GET", "/../config.py")[0], 404)
