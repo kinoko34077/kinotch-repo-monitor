@@ -2,147 +2,109 @@
 
 ## Version
 
-v0.4 localhost repository monitor is canonical on `main`. The compact workflow-card / remote-repository navigation release from PR #10 remains the feature baseline, with Windows runtime correctness follow-up PR #13 merged as `17e2481f64c9718dca62031638c2ed86d3b3371d`.
+v0.5 implementation candidate is complete on `refactor/monitor-pipeline-v05` and has passed Windows CI through implementation SHA `d9b468a6e0c28562b9bdc53eae641bf9b06c796e`. `main` remains the v0.4 production line until the v0.5 PR is merged and post-merge verification succeeds.
 
-The 2026-09-26 real-use UI/usability audit is complete in Issue #15. Functional behavior remains available, but three P1 findings are open as Issues #16, #17 and #18; therefore real-use smoothness/recovery is not considered fully accepted yet.
+Issue #20 is the active integration scope. It resolves the code defects from Issues #16, #17 and #18 and also includes the lower-severity UI/interaction findings retained from Issue #15.
 
-## Implemented
+## v0.5 implemented behavior
 
-- local Git/filesystem state remains `ACTIVE / IDLE / STALE / COMMITTED / CLEAN / ERROR`, separate from devflow workflow state
-- devflow cards default to a compact workflow badge + bounded one-line `Next Action`; full workflow detail is explicitly expandable and survives the browser refresh cycle
-- old activity ages use day/month/year units instead of unbounded hour counts
-- local `origin` is cached and normalized to `remote_web_url` for common HTTPS / SCP-like SSH / `ssh://` network remotes; local/file remotes are not exposed as browser links
-- monitored repositories remain read-only
-- monitor-owned Git commands use process-local `safe.directory` only; the resolved repository path is converted to Git-compatible forward-slash form before being passed to Git
-- expected browser/client disconnects while sending localhost responses (`ConnectionAbortedError`, `ConnectionResetError`, `BrokenPipeError`) terminate that response quietly instead of producing a traceback or attempting a second response
-- public devflow Control Issue data remains read-only, cached, nonblocking, and stale-last-good on later fetch failure
-- normalized-path local repository identity and basename-based devflow mapping remain unchanged
+### Cached local state / scan ownership
 
-## Windows runtime bugfix evidence
+- `GET /api/state` composes registry metadata, the latest completed local Git snapshot and cached devflow state; it does not run Git commands.
+- one `LocalScanEngine` owns local scan generations.
+- each generation scans at most 8 repositories concurrently.
+- complete generations publish atomically; while the next generation is running, readers keep the previous complete generation and receive `scan.in_progress=true`.
+- scan failures preserve the last successful local generation and expose error metadata separately.
+- repeated scan requests while busy coalesce to one follow-up generation.
+- cadence is 2 seconds after an ACTIVE/IDLE generation and 5 seconds when quiet.
+- HTTP binding occurs before rediscovery/start of scanning, so the server is not blocked on the first Git inspection cycle.
+- `POST /api/refresh` requests a scan without waiting for completion.
 
-Issue #12 / PR #13 addressed two failures reported from the real Windows host.
+### Durable repository registry
 
-### Git dubious ownership
+- `RepoEntry.monitored` separates durable repository metadata from current monitoring membership.
+- `監視から外す` persists `monitored=false` but retains path/name/Chat URL.
+- rediscovery keeps hidden entries hidden and does not erase Chat linkage.
+- explicit manual add of the same path re-enables monitoring and preserves the existing Chat URL.
+- removal and no-op rediscovery do not trigger unnecessary Git scans; a scan is requested only when monitored path membership changes or an explicit refresh/add requires it.
 
-Real host: `C:\Users\kinok\Documents\Programs\IDS-Composit` is owned by `CodexSandboxOffline` while Repo Monitor runs as `kinok`.
+### Stable browser reconciliation
 
-Reproduction before the fix:
-- normal Git status: exit 128 with dubious ownership
-- process-local `safe.directory=C:\Users\...`: exit 128
-- process-local `safe.directory=C:/Users/...`: exit 0
+- cards are keyed by repository path identity and reused across routine refresh.
+- unchanged card roots are not globally replaced.
+- filter changes toggle `hidden` on retained cards.
+- devflow expansion state is retained.
+- dialog focus return tracks the logical repository/action rather than a stale DOM node.
+- `PENDING` is visible for monitored repositories not yet present in a completed generation.
 
-Root cause: `Path.resolve()` produced a Windows backslash path that did not match Git's safe-directory comparison in this invocation. `_run_git()` now uses `Path.resolve(strict=False).as_posix()` without writing global/local Git configuration.
+### Compact interaction / accessibility
 
-### Localhost client disconnect
-
-`/api/state` polling could be cancelled by the browser while the server was writing the response, producing `ConnectionAbortedError [WinError 10053]`. The former handler then treated that send failure as a state-generation failure and tried to send a second 500 response to the already-closed socket.
-
-The transport boundary now suppresses only expected peer-disconnect exception classes: `ConnectionAbortedError`, `ConnectionResetError`, and `BrokenPipeError`. Other application/state errors continue through the existing error handling.
+- direct card actions are `Chat` and `Repo`; lower-frequency actions live under `その他`.
+- `その他` contains `Chat URL編集`, `フォルダを開く`, and `監視から外す`.
+- mutation initiators disable while the request is pending and duplicate same-action submissions are suppressed.
+- routine snapshot/count text is non-live; meaningful user-triggered progress/success/error uses the dedicated status live region.
+- audited secondary text uses `#59616c` or darker.
+- hidden devflow search matches (`work_status`, `repository_state`, `active_work`, `next_action`) expose a visible `一致:` reason instead of silently surfacing an otherwise unexplained card.
 
 ## Verification evidence
 
-TDD RED at test-only head `ee5f776d48584d70b1b7d2aa3e0b7cedc1f3d42d`:
-- 53 tests total
-- 1 expected failure for Windows `safe.directory` slash normalization
-- 3 expected errors for the exact disconnect exception classes
-- existing regression tests otherwise passed
+Latest full Windows GitHub Actions run for implementation SHA `d9b468a6e0c28562b9bdc53eae641bf9b06c796e`: run `36238955845`, all workflow steps successful.
 
-GREEN at implementation head `c2139e0570d2a38c07e39334b0edc0dc797d3ef4`:
-- Windows GitHub Actions: all workflow steps success
-- real Windows host isolated worktree: `verify.cmd` exit 0
-- 53/53 unit/regression tests: success
-- launcher smoke: success, 25 repositories inspected
-- localhost asset/API/devflow/compact/remote-link checks: success
-- Chrome headless browser render: success
-- real `IDS-Composit` inspection using the exact branch code: `error=''`, branch `main`, HEAD `c5f14912`, remote `https://github.com/kinoko34077/IDS-Composit`
+- 72/72 unit/regression tests: success.
+- compile check: success.
+- launcher smoke: success.
+- localhost render/fetch check: success.
+- Edge headless render + screenshot artifact: success.
+- bounded-parallel legacy benchmark: 12 repos × 30 ms simulated latency, 4 workers, serial `365.4 ms`, parallel `93.4 ms`, `3.91x` speedup.
+- cached-state benchmark with 24 repository entries:
+  - idle: median `6.57 ms`, p95 `8.36 ms` across 50 sequential reads.
+  - blocked/running scan: median `6.48 ms`, p95 `6.80 ms` across 50 sequential reads.
+  - 20 overlapping reads: maximum `171.03 ms` in this CI run.
+  - scan batches remained exactly `2` (initial generation + intentionally blocked requested generation), with `max_active_batches=1`; state reads created no extra generation.
+- real-browser interaction regression: stable card node, focus survival, text-selection survival, dialog remaining open, logical focus return, filter hide/show and same-node restoration all passed.
 
-PR #13 CI passed all workflow steps. Post-merge Windows CI on canonical implementation commit `17e2481f64c9718dca62031638c2ed86d3b3371d` also passed all workflow steps.
+Acceptance thresholds for sequential cached reads are <=25 ms median / <=100 ms p95. Both idle and running-scan measurements passed.
 
-The earlier changed-scope re-audit found no unresolved P0/P1/P2 finding inside the Windows bugfix scope. The separate real-use UI audit below covers a broader usability/performance boundary and found additional issues not exercised by that bugfix verification.
+## TDD / re-audit evidence
 
-## Real-use UI / usability audit — 2026-09-26
+The refactor was implemented with RED -> GREEN checkpoints. During changed-scope re-audit two additional specification mismatches were found and repaired before PR:
 
-Issue #15 audited the live localhost UI on the user's Windows host against the repository spec, Project development standards and current `.ai-guidelines` UI/UX/usability policies.
+1. `remove_repository()` and no-op rediscovery still requested unnecessary scans. A regression test first failed with `engine.requests` actual 2 vs expected 1; implementation now scans only when monitored membership changes.
+2. raw devflow `work_status` / `repository_state` could make a card match search while giving no visible reason. A frontend contract test first failed; hidden workflow matches now produce a visible reason, while the displayed translated workflow label is treated as visible search text.
 
-### Confirmed P1 findings
+No unresolved P0/P1/P2 code finding is currently known inside the changed scope. A final PR-level changed-scope review and main post-merge verification remain required before v0.5 is canonical.
 
-1. **Issue #16 — synchronous all-repository scans are coupled to `/api/state`.**
-   - 24 configured repositories were present during the audit.
-   - production four-worker inspection under the running monitor load measured 5.901 s / 5.919 s / 5.216 s, median 5.901 s.
-   - browser initial card population was observed at approximately 2.69–3.109 s after HTTP became available.
-   - overlapping `/api/state` clients produced 9.997–26.311 s responses; these figures demonstrate contention and are not an idle baseline.
-   - `serve()` also performs `rediscover()` before server bind, and `rediscover()` calls `state()`, so startup performs a full scan before the browser immediately requests another state scan.
+## Verification boundary
 
-2. **Issue #17 — periodic full-grid replacement destroys interaction context.**
-   - card DOM nodes were confirmed to be replaced during automatic refresh.
-   - focus on a card button moved to `BODY` after refresh.
-   - a 48-character text selection inside a card was cleared by refresh.
-   - after the opener card was replaced while a Chat URL dialog was open, closing the dialog with Escape returned focus to `BODY` rather than the invoking control.
-   - search input focus/value and devflow details expansion did survive, because those states are already retained separately.
+The user's real Windows 20+ repository host is not accessed in this continuation because RDC use was explicitly prohibited. Therefore the v0.5 evidence above is deterministic Windows GitHub Actions evidence, not a post-refactor measurement of the user's actual repository set.
 
-3. **Issue #18 — `解除` can delete the saved Chat URL.**
-   - isolated temporary-config reproduction confirmed that a repo with a non-empty Chat URL loses that URL after `remove_repository()` followed by rediscovery.
-   - the existing confirmation says the repo returns on rediscovery but does not state that the saved Chat linkage is not restored.
-   - the current regression test does not cover remove + rediscover for a repo containing a Chat URL.
+The prior real-host audit from Issue #15 remains historical evidence for the v0.4 problem state. A future user-host measurement can be performed manually or through an explicitly allowed mechanism, but it is not required to misrepresent CI as the real host.
 
-### P2/P3 findings retained in Issue #15
+Actual assistive-technology announcement behavior also remains unverified with a screen reader; the implemented contract is based on DOM/live-region structure and browser regression.
 
-- 24 cards exposed 181 focusable elements in the audited page; the first card had five direct actions. Retain the project-specific card layout, but low-frequency actions can be reduced or grouped without replacing the card design.
-- async mutation actions do not consistently expose pending/duplicate-submit state, and several mutations wait for a full quiet state refresh before the visible card is reconciled.
-- several secondary text colors are below the current accessibility checklist's 4.5:1 normal-text contrast target: `#858c96` ≈ 3.39:1, `#7c8490` ≈ 3.78:1, `#838b96` ≈ 3.44:1 against white.
-- the routine timestamp status and visible-count live regions can create assistive-technology announcement noise; this was identified from code and was not verified with a screen reader.
-- search includes complete hidden devflow fields, so a collapsed card can match text that is not visibly exposed; this is a static-code finding.
+## Existing boundaries retained
 
-### Positive results retained
-
-- devflow details open state survives refresh.
-- search input focus/value survives card rerender.
-- status uses text as well as color.
-- native button focus indication remains present.
-- tested responsive widths down to the browser's effective 500 px floor showed no horizontal document overflow; true 360 px device emulation remains unverified.
-- native dialogs have visible labels, alert regions and Escape close behavior.
-
-### Verification gap identified
-
-The current automated render path uses a two-card DemoService screenshot and static frontend assertions. It does not currently verify focus/selection across refresh, dialog focus return after an opener rerender, 20+ repository latency/contention, Chat URL persistence after remove + rediscover, or actual assistive-technology announcement behavior.
-
-## Existing behavior retained
-
-- loopback-only standard-library HTTP server
-- Host / Origin / JSON-only mutation boundary and restrictive CSP
-- responsive Vanilla HTML/CSS/JS dashboard
-- Chat URL registration, remote Repo link, manual repository registration, folder opening, removal and rediscovery
-- bounded four-worker Git inspection
-- AppData-backed crash-safe config persistence
-- shared Windows Python >=3.11 resolver
-- no Node/npm runtime dependency, database, permanent background service, or monitored-repository mutation
-
-## Known scope boundaries
-
-The devflow mapping still uses local repository basename -> `[REPO]` control name case-insensitively; it is not globally unique for arbitrary duplicate basenames or renamed local folders.
-
-`IMPLEMENTING` and other devflow states describe workflow phase, not whether a ChatGPT turn is executing at that instant.
-
-Remote repository navigation does not contact the remote host to verify that a normalized forge URL exists.
+- loopback-only standard-library HTTP server.
+- Host / Origin / JSON-only mutation boundary and restrictive CSP.
+- read-only monitored repositories and process-local `safe.directory`.
+- public read-only devflow integration with cache/stale-last-good behavior.
+- basename -> devflow `[REPO]` mapping remains case-insensitive and is not globally unique for arbitrary duplicate basenames/renames.
+- remote URLs are normalized locally without contacting the remote host.
+- no direct ChatGPT generation-state detection.
+- no Node/npm runtime, database, permanent background service, or repository mutation.
 
 ## Verification entry points
 
-- `verify.cmd`: full unit suite + compile check + headless smoke + localhost render/fetch check
-- `run.cmd --smoke`: actual launcher path smoke
-- `_run_python.cmd tools\benchmark_refresh.py`: bounded-parallel refresh benchmark
-- `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: real browser render check
-- `.github/workflows/verify.yml`: Windows execution plus screenshot artifact upload
-- Issue #15: completed real-use UI/usability audit evidence
-- Issues #16, #17, #18: open P1 repair scopes
-
-## Active work
-
-- Issue #16: decouple UI polling from synchronous all-repository Git scans.
-- Issue #17: preserve focus, selection and dialog-return context across periodic refresh.
-- Issue #18: prevent saved Chat URL loss when removing and rediscovering a repository.
-
-No production repair for these findings has been implemented yet.
+- `verify.cmd`: unit/regression + compile + smoke + localhost render/fetch.
+- `run.cmd --smoke`: launcher path smoke.
+- `_run_python.cmd tools\benchmark_refresh.py`: bounded parallel-inspection regression benchmark.
+- `_run_python.cmd tools\benchmark_cached_state.py`: 24-entry cached state latency/no-overlap benchmark while idle and while a generation is running.
+- `_run_python.cmd tools\browser_interaction_check.py`: real-browser focus/selection/dialog/filter identity regression.
+- `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: browser render check.
+- `.github/workflows/verify.yml`: Windows CI and screenshot artifact.
+- Issue #20: v0.5 implementation/re-audit evidence.
+- Issues #16/#17/#18: original P1 defect records.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor` on GitHub. `main` is canonical.
+Published to `kinoko34077/kinotch-repo-monitor`. `main` remains canonical; v0.5 becomes canonical only after its PR is merged and the merged main SHA passes verification.

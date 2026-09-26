@@ -1,46 +1,27 @@
 {
   "schema_version": 1,
-  "project": {
-    "name": "kinotch-repo-monitor",
-    "type": "local-web",
-    "description": "Localhost Web UI for monitoring local Git repository activity, showing read-only devflow workflow state, and jumping back to ChatGPT chats."
-  },
+  "repository": "kinotch-repo-monitor",
   "profile": "local-web",
-  "profiles": [
-    "local-web"
-  ],
-  "runtime": {
-    "modules": []
-  },
-  "surfaces": {
-    "cli": true,
-    "gui_windows": false,
-    "web": true,
-    "api": true,
-    "mcp": false,
-    "agent": false,
-    "library": false
-  },
+  "base_branch": "main",
+  "minimum_python": "3.11",
   "commands": {
-    "setup": "_run_python.cmd -m pip install -e .",
-    "dev": "run.cmd",
     "test": "_run_python.cmd -m unittest discover -s tests -v",
-    "build": "_run_python.cmd -m compileall -q src tests tools",
     "verify": "verify.cmd",
     "smoke": "run.cmd --smoke",
-    "deploy": ""
+    "cached_state_benchmark": "_run_python.cmd tools\\benchmark_cached_state.py",
+    "browser_interaction": "_run_python.cmd tools\\browser_interaction_check.py"
   },
-  "paths": {
-    "docs": "docs/",
-    "source": "src/",
-    "tests": "tests/",
-    "actions": "contracts/actions.json",
-    "surfaces": "contracts/surfaces.json",
-    "defaults": "defaults.json"
+  "runtime": {
+    "language": "python",
+    "dependencies": "standard-library-only",
+    "git_required": true,
+    "node_required": false,
+    "database": false,
+    "permanent_background_service": false
   },
   "notes": [
-    "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
-    "Local activity state is derived only from local Git/filesystem observation.",
-    "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection."
+    "v0.5 decouples cached state reads from single-owner background Git scan generations.",
+    "Default local scan worker bound is 8; browser state polling does not run Git.",
+    "RDC is not required for build, verification, or operation."
   ]
 }

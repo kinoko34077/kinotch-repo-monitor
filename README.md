@@ -1,71 +1,65 @@
 # KiNoTch. Repo Monitor
 
-複数のChatGPT通常チャットでリポジトリを並行編集している時に、ローカルGitの活動状況とdevflow上の開発工程をブラウザ上のカードで一覧する軽量localhost Webアプリです。
+複数の開発repoを並行して扱う際に、ローカルGitの活動状況とdevflow上の開発工程をブラウザのカードで一覧する軽量localhost Webアプリです。
+
+## v0.5の要点
+
+- `GET /api/state` はGitを走査せず、直近完了したローカルsnapshotを返します。
+- Git走査は単一のbackground scan engineが所有し、repo内並列は最大8 workerです。
+- scan要求が実行中に重なっても、後続は最大1回へcoalesceされます。
+- ACTIVE/IDLEを含むscan完了後は既定2秒、静かな状態では5秒で次scanを行います。
+- 初回scan前もHTTP/UIは利用でき、未観測repoは `確認中` (`PENDING`) と表示します。
+- 通常refreshではrepoごとのDOM rootを保持し、focus・text selection・dialogの論理的な戻り先を維持します。
+- cardの既定actionは `Chat` / `Repo` / `その他`。低頻度操作は `その他` にまとめます。
+- `監視から外す` はrepo metadataとChatリンクを保持したまま一覧から外します。同じpathを明示的に再追加すると復帰します。
+- devflowの折り畳み詳細にだけ存在する値へ検索一致した場合は、一致理由をcard上へ表示します。
+- mutation中は起点controlをdisabledにし、同一actionの二重送信を抑止します。
 
 ## できること
 
-- `~/Documents/Programs`（Windowsでは通常 `%USERPROFILE%\Documents\Programs`）直下のGit repoを自動検出
-- scan root外のGit repoも絶対パスを入力して手動追加
-- 画面幅に合わせて自動変形するレスポンシブカード表示
-- 名前・branch・path・devflow状態を検索
-- ローカル状態を `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / エラー` で表示
-- public `kinoko34077/devflow` の `[REPO]` Control Issueから、`Work Status / Repository State / Active Work / Next Action` を読取専用で取得
-- devflow工程を `実装中 / レビュー待ち / ブロック / 監査済 / 保留` 等の別バッジで表示
-- devflowの長文詳細は初期状態で折り畳み、工程バッジ + `Next Action` の短い1行だけを一覧表示
-- 展開したdevflow詳細は2秒更新を跨いでも展開状態を維持
-- branch、short HEAD、変更ファイル数、最終活動、ahead/behindを表示
-- 古い最終活動は数千時間表記ではなく日・月・年単位へ丸めて表示
-- ChatGPT URLを登録し、カードから直接開く
-- `origin` がHTTP(S) / SSH系のネットワークGit remoteなら、`Repo`ボタンからリポジトリページを直接開く
-- URL編集、repoフォルダを開く、登録解除、再検出
-- Git ownershipが異なるrepoも、監視コマンドごとの一時的 `safe.directory` 指定で読取可能にする（Git設定は永続変更しない）
-- 同名フォルダのrepoが複数あってもパス単位で別repoとして扱う
-- Git監視は最大4repoを並列に検査し、多数repo時の更新待ちを抑える
-- devflow取得は2分キャッシュし、2秒ごとのローカル更新とは分離
-- Python標準ライブラリ + Gitのみで動作し、Node/npmは不要
+- `%USERPROFILE%\Documents\Programs` 直下のGit repoを自動検出
+- scan root外のGit repoを絶対pathで手動追加
+- responsive card表示、名前・branch・path・devflow状態の検索、local status filter
+- local statusを `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / 確認中 / エラー` で表示
+- public `kinoko34077/devflow` のopen `[REPO]` Control Issueから workflow stateを読取専用で取得
+- branch、short HEAD、変更数、最終活動、ahead/behindを表示
+- ChatGPT URLの登録・直接open
+- network Git remoteを正規化できる場合に `Repo` actionを表示
+- folder open、再検出、manual refresh、monitoring removal
+- ownershipが異なるrepoもprocess-local `safe.directory` で読取り、Git configは永続変更しない
+- 同名repoをnormalized local path単位で区別
+- Python標準ライブラリ + Gitのみで動作し、Node/npm・DB・常駐serviceは不要
 
 ## 状態判定
 
-### ローカル状態
+`ACTIVE`はChatGPT内部の生成状態ではなく、Git/filesystemから観測したlocal activityです。
 
-`ACTIVE`は「ChatGPTが現在生成中」という意味ではなく、変更ファイルのmtimeが直近60秒以内であることを示します。Gitとファイルシステムから観測できないChatGPT内部状態は推測しません。
-
-- 緑 `編集中`: dirty + 60秒以内に変更
-- 黄 `一時停止`: dirty + 10分以内
+- 緑 `編集中`: dirty + 最新変更mtimeが60秒以内
+- 黄 `一時停止`: dirty + 10分以内、またはdirtyでmtime不明
 - 橙 `停止中`: dirty + 10分超
 - 青 `Commit済`: clean + upstreamよりahead
 - 灰 `待機`: clean
-- 赤 `エラー`: Git読取失敗
+- `確認中`: monitoring対象だが、まだ完了snapshotに観測結果がない
+- 赤 `エラー`: Git inspection失敗
 
-### devflow工程
+## devflow工程
 
-devflow側は各repositoryのopen `[REPO] <repository>` Control Issueを読み、ローカル状態とは別に表示します。
+devflow stateはlocal activityとは別レイヤです。`IMPLEMENTING`等は開発工程を表し、ChatGPTが今この瞬間に生成中であることは示しません。
 
-例:
+既定ではpublic GitHub REST APIを120秒cacheし、backgroundで更新します。取得失敗時は前回正常値をstaleとして維持し、local monitoringは継続します。
 
-- `IMPLEMENTING` → `実装中`
-- `AWAITING_REVIEW` → `レビュー待ち`
-- `BLOCKED` → `ブロック`
-- `AUDITED` → `監査済`
-- `PARKED` → `保留`
+## scan / refresh
 
-カードの通常表示には工程バッジと短い`Next Action`のみを出します。`詳細`を開くと `Repository State / Active Work / Next Action / devflow Control Issue` を確認できます。
+ブラウザは既定2秒ごとにcached `/api/state` を読みます。このpolling自体はGit scanを起動しません。
 
-`IMPLEMENTING`はdevflow上の工程状態であり、「今この瞬間にChatGPTが生成中」という意味ではありません。短時間のsession/heartbeat検出はこの版の対象外です。
+Git scanを要求するのは主に以下です。
 
-取得はpublic GitHub REST APIから読取専用で行い、既定では120秒キャッシュします。取得失敗時は、前回正常取得値があればそれをstaleとして維持し、ローカルGit監視は継続します。
+- monitor起動後の初回scan
+- `更新` (`POST /api/refresh`)
+- 新しいrepoの手動追加
+- 再検出によりmonitoring対象path集合が変化した場合
 
-## Git remote / Repoボタン
-
-各repoの`origin`はローカルGitから読取専用で取得します。以下のようなremoteをブラウザURLへ正規化できる場合だけ`Repo`ボタンを表示します。
-
-- `https://github.com/owner/repo.git`
-- `git@github.com:owner/repo.git`
-- `ssh://git@gitlab.com/group/repo.git`
-
-`file://`、Windowsローカルパス、相対パス等はWebリンク化しません。remote取得はキャッシュするため、2秒更新ごとに追加Gitコマンドを繰り返しません。
-
-Git ownershipが現在ユーザーと異なるrepoには、各Gitコマンドへ `-c safe.directory=<repo>` を付けて読み取ります。`git config --global` / `--local` は変更しません。
+Chat URL変更、folder open、`監視から外す`、変化のない再検出では不要なscanを要求しません。
 
 ## 起動
 
@@ -83,61 +77,73 @@ cmd.exe:
 run.cmd
 ```
 
-通常は `http://127.0.0.1:17341/` でローカルサーバーを起動し、既定ブラウザを開きます。17341番portが使用中なら、空いているloopback portへ自動フォールバックします。外部ネットワークへ公開する用途ではありません。
+通常は `http://127.0.0.1:17341/` を使い、既定browserを開きます。17341が使用中なら空いているloopback portへfallbackします。
 
-ブラウザを自動で開かない場合:
+browserを自動で開かない場合:
 
 ```powershell
 .\run.cmd --no-browser
 ```
 
-別portを使う場合:
+別port:
 
 ```powershell
 .\run.cmd --port 18080
 ```
 
-`run.cmd` は `python` → `py -3` → `python3` の順に、実際に起動可能なPython 3.11+を選びます。
+`run.cmd` は `python` → `py -3` → `python3` の順に、実行可能なPython 3.11+を選択します。
 
 ## Web UI
 
-- `Repo検索`で名前・branch・path・remote URL・devflow工程を絞り込めます。
-- 状態selectでローカル活動状態を絞り込めます。
-- `Repo追加`でscan root外のローカルGit repoを絶対パスから登録できます。
-- `Chatを開く / Chat登録`でChatGPT URLを利用します。
-- `Repo`は検出できたremote repository pageを開きます。
-- `URL編集`でChatGPTリンク変更、`フォルダ`でローカルrepoを開きます。
-- `解除`はconfig上の登録を外すだけで、自動検出対象なら再検出すると復帰します。
+- `Repo検索`: repo情報とdevflow情報を検索。折り畳み内だけで一致した場合は `一致:` 理由を表示します。
+- `状態`: local activity filter。
+- `Repo追加`: scan root外repoを絶対pathから追加。
+- `更新`: background Git scanを要求し、完了待ちでUIをblockしません。
+- `再検出`: scan rootsを再探索。monitoring対象が変わった時だけscanを要求します。
+- `Chatを開く / Chat登録`: ChatGPT URL。
+- `Repo`: detected remote repository page。
+- `その他`: `Chat URL編集` / `フォルダを開く` / `監視から外す`。
 
-ブラウザのセキュリティ制約により、Web版の`Repo追加`はネイティブのフォルダ選択ダイアログではなく絶対パス入力方式です。backend側で `.git` の存在を検証します。
+`監視から外す`は永続metadata削除ではありません。Chatリンクを保持し、同じpathを `Repo追加` するとmonitoringへ戻ります。
+
+## Git remote / safe.directory
+
+`origin`はlocal Gitから読取専用で取得し、HTTPS / SCP-like SSH / `ssh://` network remoteのみbrowser URLへ正規化します。`file://`、Windows local path、UNC/local absolute path、relative local pathはWeb link化しません。
+
+ownership mismatch対策は各Git commandへ `-c safe.directory=<repo>` を付けるprocess-local方式で、global/local Git configを変更しません。
 
 ## 設定保存先
 
 Windows: `%APPDATA%\KiNoTchRepoMonitor\config.json`
 
-ここにscan root、repo path、ChatGPT URLを保存します。repo内へ個人URLは保存しません。設定は同一ファイルシステム上の一時ファイルからatomic replaceし、破損JSONを検出した場合は `config.json.corrupt` へ退避して既定値で起動します。
+scan roots、repo path、ChatGPT URL、monitoring membershipを保存します。writeはsame-filesystem temp file + `os.replace` のatomic replacementです。破損JSONは `config.json.corrupt` へ退避してdefaultsで起動します。
 
 ## 検証
-
-PowerShell:
 
 ```powershell
 .\verify.cmd
 ```
 
-`verify.cmd` はunit tests、compile check、headless smoke、localhost Web render/fetch checkを、`run.cmd`と同じPython選択規則で実行します。GitHub ActionsではEdge/Chrome系headless browserで実際にlocalhost UIを描画し、screenshot artifactも生成します。
+GitHub Actionsではunit/regression、compile、launcher smoke、cached-state負荷試験、real browser interaction regression、Edge/Chrome headless renderとscreenshot artifactまで実行します。
+
+主要な追加check:
+
+```powershell
+.\_run_python.cmd tools\benchmark_cached_state.py
+.\_run_python.cmd tools\browser_interaction_check.py
+```
 
 ## Repository Base / devflow
 
-- `project/` はlocal Web surfaceとして構成しています。
-- devflowは開発運用上のcross-repository authorityであり、runtimeではpublic Control Issueを読取専用の工程表示にも利用します。
-- ローカル活動状態の正本はGit/filesystem観測で、devflow工程状態とは混同しません。
-- runtimeへmanaged-repository一覧は埋め込みません。
-- 初期実装ではローカルrepoのbasenameとdevflow `[REPO]` 名を大文字小文字を無視して対応付けます。
+- `project/` はlocal Web surfaceです。
+- devflowはcross-repository operational authorityで、runtimeではpublic Control Issueを読取専用表示します。
+- local activityの正本はGit/filesystem観測で、devflow workflow stateとは混同しません。
+- runtimeへmanaged repository一覧は埋め込みません。
+- local basenameとdevflow `[REPO]` 名をcase-insensitiveで対応付ける方式はv0.5でも維持します。
 
 ## GitHub
 
-このプロジェクトの正規リポジトリは `kinoko34077/kinotch-repo-monitor` です。
+正規repositoryは `kinoko34077/kinotch-repo-monitor` です。
 
 ```powershell
 git clone https://github.com/kinoko34077/kinotch-repo-monitor.git
