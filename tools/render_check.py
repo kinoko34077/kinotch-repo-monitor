@@ -5,10 +5,16 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.request
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from repo_monitor.web_server import create_server
 
@@ -58,6 +64,9 @@ class DemoService:
 
     def rediscover(self):
         return self.state()
+
+    def add_repository(self, path):
+        return {"key": path, "name": Path(path).name, "path": path, "chat_url": ""}
 
     def set_chat_url(self, repo_key, chat_url):
         return {"key": repo_key, "chat_url": chat_url, "has_chat": bool(chat_url)}
