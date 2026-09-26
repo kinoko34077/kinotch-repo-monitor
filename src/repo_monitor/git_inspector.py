@@ -40,7 +40,6 @@ def parse_porcelain_z(raw: str) -> list[str]:
         status = entry[:2]
         path = entry[3:] if len(entry) >= 4 else ""
         if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
-            # In porcelain v1 -z, first pathname is destination, next is source.
             if i + 1 < len(parts) and parts[i + 1]:
                 i += 1
         if path:
@@ -100,9 +99,11 @@ def parse_status_v2(raw: str) -> dict[str, object]:
 
 
 def remote_to_web_url(value: str) -> str:
-    """Convert common Git remote forms into a browser-safe repository URL."""
+    """Convert common network Git remote forms into a browser-safe repository URL."""
     remote = (value or "").strip()
     if not remote:
+        return ""
+    if re.match(r"^[A-Za-z]:[\\/]", remote) or remote.startswith(("./", "../", "/", "\\\\")):
         return ""
 
     scp_like = re.fullmatch(r"(?:[^@/:\s]+@)?([^/:\s]+):(.+)", remote)
@@ -205,11 +206,6 @@ def inspect_repositories(
     max_workers: int = 4,
     inspector: Callable[[str | Path], T] = inspect_repository,
 ) -> list[T]:
-    """Inspect repositories concurrently with a small fixed upper bound.
-
-    The result order matches the input order so the UI can zip snapshots back to
-    its repository entries without extra coordination state.
-    """
     path_list = list(paths)
     if not path_list:
         return []
