@@ -15,6 +15,7 @@
         <p id="status-line" class="status-line" role="status" aria-live="polite">起動中…</p>
       </div>
       <div class="top-actions">
+        <button id="repo-add-button" class="button button-secondary" type="button">Repo追加</button>
         <button id="refresh-button" class="button button-secondary" type="button">更新</button>
         <button id="rediscover-button" class="button button-primary" type="button">再検出</button>
       </div>
@@ -47,6 +48,28 @@
       「編集中」はローカルファイルの更新時刻から推定した活動状態です。ChatGPTが現在生成中であることを直接示すものではありません。
     </footer>
   </main>
+
+  <dialog id="repo-add-dialog" class="dialog">
+    <form id="repo-add-form" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ADD REPOSITORY</p>
+          <h2>Repo追加</h2>
+        </div>
+        <button id="repo-add-close" class="icon-button" type="button" aria-label="閉じる">×</button>
+      </div>
+      <label class="dialog-field">
+        <span>ローカルrepoの絶対パス</span>
+        <input id="repo-path-input" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Users\...\Documents\Programs\repo-name">
+      </label>
+      <p class="dialog-help">ブラウザの制約上、フォルダ選択ではなくローカルパスを入力します。</p>
+      <p id="repo-add-error" class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="repo-add-cancel" class="button button-secondary" type="button">キャンセル</button>
+        <button class="button button-primary" type="submit">追加</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="chat-dialog" class="dialog">
     <form id="chat-form" method="dialog">
