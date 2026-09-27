@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from repo_monitor.web_server import create_server
+from browser_audit import read_devtools_active_port
 from render_check import DemoService, browser_candidates
 
 
@@ -183,7 +184,9 @@ def devtools_page(port: int, expected_url: str) -> str:
 
 
 def run_browser_checks(browser: Path, url: str) -> None:
-    with tempfile.TemporaryDirectory(prefix="repo-monitor-interaction-") as profile:
+    with tempfile.TemporaryDirectory(
+        prefix="repo-monitor-interaction-", ignore_cleanup_errors=True
+    ) as profile:
         process = subprocess.Popen(
             [
                 str(browser),
@@ -209,7 +212,7 @@ def run_browser_checks(browser: Path, url: str) -> None:
                 time.sleep(0.05)
             if not active_port.exists():
                 raise RuntimeError("DevToolsActivePort was not created")
-            port = int(active_port.read_text(encoding="utf-8").splitlines()[0])
+            port = read_devtools_active_port(active_port, timeout=8.0)
             devtools = DevTools(devtools_page(port, url))
             devtools.call("Runtime.enable")
             wait_until(
@@ -295,7 +298,15 @@ def run_browser_checks(browser: Path, url: str) -> None:
         finally:
             if devtools is not None:
                 devtools.close()
-            process.terminate()
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                process.terminate()
             try:
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
