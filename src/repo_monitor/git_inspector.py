@@ -133,9 +133,8 @@ def remote_to_web_url(value: str) -> str:
 
 
 def _run_git(repo: Path, *args: str) -> str:
-    safe_repo = repo.resolve(strict=False).as_posix()
     cp = subprocess.run(
-        ["git", "-c", f"safe.directory={safe_repo}", "--no-pager", *args],
+        ["git", "-c", "core.fsmonitor=false", "--no-pager", *args],
         cwd=repo,
         text=True,
         encoding="utf-8",
