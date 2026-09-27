@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
 CONTROL_PREFIX = "[REPO] "
+TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
 
 @dataclass(frozen=True)
@@ -61,15 +62,31 @@ def _clean_value(value: str) -> str:
     return value.strip().replace("`", "").strip()
 
 
+def _is_trusted_control_issue(issue: Mapping[str, object]) -> bool:
+    if "pull_request" in issue:
+        return False
+    association = str(issue.get("author_association") or "").strip().upper()
+    return association in TRUSTED_AUTHOR_ASSOCIATIONS
+
+
 def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, DevflowRepoState]:
     states: dict[str, DevflowRepoState] = {}
+    seen_names: dict[str, str] = {}
     for issue in issues:
+        if not _is_trusted_control_issue(issue):
+            continue
         title = issue.get("title")
         if not isinstance(title, str) or not title.startswith(CONTROL_PREFIX):
             continue
         repository = title[len(CONTROL_PREFIX) :].strip()
         if not repository:
             continue
+        folded = repository.casefold()
+        if folded in seen_names:
+            raise ValueError(
+                "duplicate trusted Repository Control for "
+                f"{repository!r}: {seen_names[folded]!r} and {issue.get('number')!r}"
+            )
         body = issue.get("body")
         parts = _sections(body if isinstance(body, str) else "")
         states[repository] = DevflowRepoState(
@@ -82,6 +99,7 @@ def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, De
             issue_url=str(issue.get("html_url") or ""),
             updated_at=str(issue.get("updated_at") or ""),
         )
+        seen_names[folded] = str(issue.get("number") or 0)
     return states
 
 
