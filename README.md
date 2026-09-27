@@ -22,11 +22,13 @@
 - responsive card表示、名前・branch・path・devflow状態の検索、local status filter
 - local statusを `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / 確認中 / エラー` で表示
 - public `kinoko34077/devflow` のopen `[REPO]` Control Issueから workflow stateを読取専用で取得
+- devflow Controlは `OWNER` / `MEMBER` / `COLLABORATOR` のtrusted authorだけを採用し、PR lookalikeや重複trusted Controlはfail closed
 - branch、short HEAD、変更数、最終活動、ahead/behindを表示
 - ChatGPT URLの登録・直接open
 - network Git remoteを正規化できる場合に `Repo` actionを表示
 - folder open、再検出、manual refresh、monitoring removal
-- ownershipが異なるrepoもprocess-local `safe.directory` で読取り、Git configは永続変更しない
+- Git inspectionではrepo側 `core.fsmonitor` を無効化し、ownership mismatchを `safe.directory` で強制回避しない
+- ownershipがdubiousなrepoはGitの拒否理由を `エラー` として表示し、repo configを信頼状態へ格上げしない
 - 同名repoをnormalized local path単位で区別
 - Python標準ライブラリ + Gitのみで動作し、Node/npm・DB・常駐serviceは不要
 
@@ -46,7 +48,7 @@
 
 devflow stateはlocal activityとは別レイヤです。`IMPLEMENTING`等は開発工程を表し、ChatGPTが今この瞬間に生成中であることは示しません。
 
-既定ではpublic GitHub REST APIを120秒cacheし、backgroundで更新します。取得失敗時は前回正常値をstaleとして維持し、local monitoringは継続します。
+既定ではpublic GitHub REST APIを120秒cacheし、backgroundで更新します。取得失敗時は前回正常値をstaleとして維持し、local monitoringは継続します。Control候補はtrusted author associationだけを採用し、pull request objectは無視します。同一repo名のtrusted Controlが複数ある場合はlast-winsにせずrefreshを失敗扱いにして、前回正常snapshotがあればstaleとして維持します。
 
 ## scan / refresh
 
@@ -106,11 +108,11 @@ browserを自動で開かない場合:
 
 `監視から外す`は永続metadata削除ではありません。Chatリンクを保持し、同じpathを `Repo追加` するとmonitoringへ戻ります。
 
-## Git remote / safe.directory
+## Git remote / ownership trust
 
 `origin`はlocal Gitから読取専用で取得し、HTTPS / SCP-like SSH / `ssh://` network remoteのみbrowser URLへ正規化します。`file://`、Windows local path、UNC/local absolute path、relative local pathはWeb link化しません。
 
-ownership mismatch対策は各Git commandへ `-c safe.directory=<repo>` を付けるprocess-local方式で、global/local Git configを変更しません。
+各Git commandではprocess-localに `core.fsmonitor=false` と `GIT_OPTIONAL_LOCKS=0` を指定します。Repo Monitor自身は `safe.directory=<repo>` を注入しません。Gitがownership mismatchをdubious ownershipとして拒否した場合はその拒否をper-repository errorとして表示します。必要なtrust設定はGit側で利用者が明示的に管理する境界です。
 
 ## 設定保存先
 

@@ -4,7 +4,7 @@
 
 v0.5 is canonical on `main`. The architectural implementation was squash-merged by PR #21 at `dbbfe6aa624d58526547ba3bd1364bd5b2938e93`. Real-host follow-up Issue #16 exposed one cached-read hot-path defect; PR #23 repaired it and was squash-merged at `aba9f81da47ad87954bb9bf59f51dda7fb365634`.
 
-Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TDD/re-audit record.
+Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TDD/re-audit record. Issue #27 records the later cross-repository security re-audit; PR #28 is the bounded forward fix for its two P2 trust-boundary findings.
 
 ## v0.5 implemented behavior
 
@@ -21,6 +21,13 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - `POST /api/refresh` requests a scan without waiting for completion.
 - repository path identity keeps canonical `Path.resolve(strict=False)` semantics on first use and caches the result by normalized absolute textual path, removing repeated filesystem resolution from the cached-state hot path while retaining Windows 8.3 short/long path equivalence.
 
+### Git inspection trust boundary
+
+- every Git read sets `GIT_OPTIONAL_LOCKS=0` and process-local `-c core.fsmonitor=false`.
+- Repo Monitor does not inject `safe.directory=<repo>` and therefore does not force-trust arbitrary monitored repository ownership.
+- when Git reports dubious ownership, the repository is surfaced through the normal per-repository `ERROR` path rather than bypassing Git's ownership protection.
+- this closes the Issue #27 path where a force-trusted repository could supply executable Git configuration such as `core.fsmonitor` during repeated scans.
+
 ### Durable repository registry
 
 - `RepoEntry.monitored` separates durable repository metadata from current monitoring membership.
@@ -28,6 +35,15 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - rediscovery keeps hidden entries hidden and does not erase Chat linkage.
 - explicit manual add of the same path re-enables monitoring and preserves the existing Chat URL.
 - removal and no-op rediscovery do not trigger unnecessary Git scans; a scan is requested only when monitored path membership changes or an explicit refresh/add requires it.
+
+### devflow overlay trust boundary
+
+- only open `[REPO] <repository>` Issues whose `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR` are accepted as Control records.
+- missing/other author associations fail closed.
+- GitHub pull-request objects are ignored even when the title resembles a Repository Control.
+- duplicate trusted Controls for the same repository name, compared case-insensitively, invalidate that refresh instead of using last-wins behavior.
+- after a prior successful fetch, a rejected refresh preserves the last successful devflow snapshot and marks it stale through the existing provider failure path.
+- this closes the Issue #27 consumer-side counterpart of devflow #127 without changing the overlay's read-only nature.
 
 ### Stable browser reconciliation
 
@@ -55,17 +71,15 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - The report keeps the screen-reader boundary narrow: DOM/AX evidence is reported, but actual screen-reader speech remains WARN until an assistive-technology process is attached.
 - Windows CI uploads browser-audit.json and browser-audit.png as the repo-monitor-browser-audit artifact.
 
-## Post-merge verification evidence
+## Verification evidence
 
-Windows GitHub Actions run `36247759111` on repaired main SHA `aba9f81da47ad87954bb9bf59f51dda7fb365634`: all workflow steps successful.
+Original repaired-v0.5 Windows GitHub Actions run `36247759111` on main SHA `aba9f81da47ad87954bb9bf59f51dda7fb365634` passed unit/regression, compile, launcher smoke, localhost render/fetch, cached-state benchmark, real-browser interaction regression and Edge headless render/screenshot.
 
-- 73/73 unit/regression tests: success.
-- compile check: success.
-- launcher smoke: success.
-- localhost render/fetch check: success.
-- cached-state benchmark: success.
-- real-browser interaction regression: success.
-- Edge headless render + screenshot artifact: success.
+Issue #27 security hardening used RED -> GREEN evidence on PR #28:
+
+- RED head `86e9759160b0e1148afa2fb1b51285fb840a2369`: the added trust-boundary regressions failed under the pre-fix implementation.
+- GREEN code/test head `8b5eb448a103930069f27769e8bde26bfd31c6da`: Windows workflow run `36305782645` passed `verify.cmd`, launcher smoke, refresh benchmark, cached-state benchmark, browser interaction check, required browser render and screenshot artifact.
+- documentation changes after the code/test GREEN do not alter runtime behavior; PR #28 retains current-head CI as the acceptance authority before merge.
 
 The v0.5 cached-read acceptance thresholds remain <=25 ms median / <=100 ms p95.
 
@@ -104,7 +118,7 @@ Issue #16 follow-up also used RED -> GREEN:
 - final repair caches canonical resolved identity, preserving existing path semantics while removing repeated filesystem I/O.
 - branch run `36246693419` and PR-event run `36247630486` passed all steps before merge.
 
-No unresolved P0/P1/P2 implementation defect is currently known in the merged v0.5 scope.
+Issue #27 P2 trust-boundary findings are covered by PR #28. Its lower-priority pagination/rate-limit, scan-stop/backoff, Chat URL scheme and folder-open follow-ups remain separate maintenance scope and are not represented as fixed by this change.
 
 ## Verification boundary
 
@@ -114,8 +128,8 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 
 - loopback-only standard-library HTTP server.
 - Host / Origin / JSON-only mutation boundary and restrictive CSP.
-- read-only monitored repositories and process-local `safe.directory`.
-- public read-only devflow integration with cache/stale-last-good behavior.
+- monitored repositories remain read-only; Repo Monitor does not mutate their Git configuration or force-trust ownership.
+- public read-only devflow integration with trusted-author filtering and cache/stale-last-good behavior.
 - basename -> devflow `[REPO]` mapping remains case-insensitive and is not globally unique for arbitrary duplicate basenames/renames.
 - remote URLs are normalized locally without contacting the remote host.
 - no direct ChatGPT generation-state detection.
@@ -134,9 +148,10 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 - `.github/workflows/verify.yml`: Windows CI and screenshot artifact.
 - PR #21: v0.5 architectural implementation merge.
 - PR #23: real-host cached-state hot-path repair.
+- PR #28 / Issue #27: security/trust-boundary hardening and audit record.
 - Issue #20: v0.5 integration/re-audit record.
 - Issues #16/#17/#18: completed P1 defect records.
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor`. v0.5 is canonical on `main`; current repaired implementation SHA is `aba9f81da47ad87954bb9bf59f51dda7fb365634`.
+Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active line; PR #28 is the forward security-hardening change for Issue #27 and does not introduce a new release/deployment action.

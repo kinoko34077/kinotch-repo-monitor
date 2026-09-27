@@ -39,6 +39,7 @@ def issue_payload():
             "body": ISSUE_BODY,
             "html_url": "https://github.com/kinoko34077/devflow/issues/59",
             "updated_at": "2026-09-26T03:00:00Z",
+            "author_association": "OWNER",
         }
     ]
 
@@ -51,6 +52,7 @@ class DevflowStateTests(unittest.TestCase):
                 "title": "[SYSTEM] ignore me",
                 "body": "not a repository control issue",
                 "html_url": "https://github.com/kinoko34077/devflow/issues/60",
+                "author_association": "OWNER",
             },
         ]
 
@@ -65,6 +67,45 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(state.issue_number, 59)
         self.assertEqual(state.issue_url, "https://github.com/kinoko34077/devflow/issues/59")
         self.assertEqual(state.updated_at, "2026-09-26T03:00:00Z")
+
+    def test_parse_control_issues_ignores_untrusted_and_pull_request_items(self):
+        trusted = issue_payload()[0]
+        untrusted = {
+            **trusted,
+            "number": 60,
+            "title": "[REPO] attacker-repo",
+            "author_association": "NONE",
+        }
+        unknown = {
+            key: value
+            for key, value in {
+                **trusted,
+                "number": 61,
+                "title": "[REPO] unknown-repo",
+            }.items()
+            if key != "author_association"
+        }
+        pull_request = {
+            **trusted,
+            "number": 62,
+            "title": "[REPO] pr-lookalike",
+            "pull_request": {"url": "https://api.github.com/repos/x/y/pulls/62"},
+        }
+
+        states = parse_control_issues([untrusted, unknown, pull_request, trusted])
+
+        self.assertEqual(list(states), ["example-repo"])
+
+    def test_parse_control_issues_rejects_duplicate_trusted_controls(self):
+        trusted = issue_payload()[0]
+        duplicate = {
+            **trusted,
+            "number": 99,
+            "html_url": "https://github.com/kinoko34077/devflow/issues/99",
+        }
+
+        with self.assertRaisesRegex(ValueError, "duplicate trusted Repository Control"):
+            parse_control_issues([trusted, duplicate])
 
     def test_provider_caches_one_public_issue_fetch_until_ttl_expires(self):
         calls = []

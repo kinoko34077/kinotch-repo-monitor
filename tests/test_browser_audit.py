@@ -1,4 +1,6 @@
 import json
+import socket
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,7 @@ from tools.browser_audit import (
     inspect_geometry,
     read_devtools_active_port,
     summarize_checks,
+    WebSocketClient,
 )
 
 
@@ -122,6 +125,35 @@ class BrowserAuditContractTests(unittest.TestCase):
         self.assertIn("runtime.api_state=PASS", output)
         self.assertIn("accessibility.speech=WARN", output)
         self.assertIn("overall=PASS WITH NON-BLOCKING BOUNDARY", output)
+
+    def test_websocket_client_reassembles_fragmented_text_messages(self):
+        client, peer = socket.socketpair()
+
+        def frame(opcode, payload, *, final):
+            first = (0x80 if final else 0) | opcode
+            length = len(payload)
+            header = bytearray([first])
+            if length < 126:
+                header.append(length)
+            elif length < 65536:
+                header.append(126)
+                header.extend(struct.pack("!H", length))
+            else:
+                header.append(127)
+                header.extend(struct.pack("!Q", length))
+            return bytes(header) + payload
+
+        socket_client = WebSocketClient.__new__(WebSocketClient)
+        socket_client.sock = client
+        try:
+            peer.sendall(frame(0x1, b'{"id":', final=False))
+            peer.sendall(frame(0x9, b"keepalive", final=True))
+            peer.sendall(frame(0x0, b"7}", final=True))
+
+            self.assertEqual(socket_client.recv_json(), {"id": 7})
+        finally:
+            client.close()
+            peer.close()
 
 
 if __name__ == "__main__":

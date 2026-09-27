@@ -13,7 +13,8 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - A monitored registry entry that has not appeared in a completed scan generation is `PENDING` rather than absent.
 - Identify repositories by normalized local path. Equal basenames at different paths remain distinct.
 - Sort repositories deterministically by local name then normalized path.
-- Monitored repositories are read-only. Git reads use `GIT_OPTIONAL_LOCKS=0` and process-local `-c safe.directory=<repo>` only.
+- Monitored repositories are read-only. Git reads use `GIT_OPTIONAL_LOCKS=0` and process-local `-c core.fsmonitor=false`; Repo Monitor must not force-trust a repository with a `safe.directory` override.
+- If Git rejects a repository because of dubious ownership, expose that Git error through the normal per-repository `ERROR` state rather than bypassing Git's ownership trust boundary.
 - `remote.origin.url` is read locally and cached. Network HTTPS/SCP-like SSH/`ssh://` remotes may expose `remote_web_url`; local/file remotes must not.
 
 ### Scan engine
@@ -48,6 +49,9 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 ### devflow overlay
 
 - Read open `[REPO] <repository>` Control Issues from public `kinoko34077/devflow` as a read-only overlay.
+- Accept a Repository Control only when its `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`; missing or other associations fail closed.
+- Ignore GitHub pull-request objects even if their title resembles `[REPO] <repository>`.
+- If more than one trusted open Control resolves to the same repository name case-insensitively, reject that refresh as ambiguous; after a prior success, retain the last successful snapshot as stale rather than applying last-wins state.
 - Keep `Work Status`, `Repository State`, `Active Work`, and `Next Action` separate from local activity status.
 - Match local basename to `[REPO]` control name case-insensitively in v0.5.
 - Cache one open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.

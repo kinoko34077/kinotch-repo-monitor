@@ -217,8 +217,11 @@ class WebSocketClient:
         self._send_frame(0x1, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
     def recv_json(self) -> dict[str, object]:
+        fragments = bytearray()
+        message_opcode: int | None = None
         while True:
             first, second = self._read_exact(2)
+            final = bool(first & 0x80)
             opcode = first & 0x0F
             masked = bool(second & 0x80)
             length = second & 0x7F
@@ -235,9 +238,29 @@ class WebSocketClient:
             if opcode == 0x9:
                 self._send_frame(0xA, payload)
                 continue
-            if opcode != 0x1:
+            if opcode in (0xA,):
                 continue
-            return json.loads(payload.decode("utf-8"))
+            if opcode in (0x1, 0x2):
+                if message_opcode is not None:
+                    raise RuntimeError("websocket data frame started before prior message completed")
+                message_opcode = opcode
+                fragments.clear()
+            elif opcode == 0x0:
+                if message_opcode is None:
+                    raise RuntimeError("websocket continuation frame without a data frame")
+            else:
+                continue
+            fragments.extend(payload)
+            if not final:
+                continue
+            completed_opcode = message_opcode
+            message_opcode = None
+            if completed_opcode != 0x1:
+                fragments.clear()
+                continue
+            message = bytes(fragments)
+            fragments.clear()
+            return json.loads(message.decode("utf-8"))
 
     def close(self) -> None:
         try:
