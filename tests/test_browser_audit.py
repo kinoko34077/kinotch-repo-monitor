@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tools.browser_audit import (
     CheckResult,
+    api_state_url,
     build_report,
     inspect_geometry,
     read_devtools_active_port,
@@ -16,6 +17,9 @@ from tools.browser_audit import (
 
 
 class BrowserAuditContractTests(unittest.TestCase):
+    def test_api_state_url_is_absolute_for_cdp_evaluation(self):
+        self.assertEqual(api_state_url("http://127.0.0.1:17341/"), "http://127.0.0.1:17341/api/state")
+
     def test_active_port_retries_transient_permission_and_partial_file(self):
         class FlakyPath:
             def __init__(self):

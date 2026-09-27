@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 
 TOOL_ROOT = Path(__file__).resolve().parent
@@ -155,6 +155,12 @@ def summarize_report(report: dict[str, Any]) -> str:
 def write_report(path: Path, report: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def api_state_url(base_url: str) -> str:
+    """Build an absolute API URL for CDP contexts with an unreliable base URI."""
+
+    return urljoin(base_url, "/api/state")
 
 
 class WebSocketClient:
@@ -508,14 +514,14 @@ class BrowserAudit:
         }
 
     def fetch_api_state(self) -> dict[str, Any]:
-        value = self.devtools.evaluate(
-            r"""(async () => {
+        endpoint = json.dumps(api_state_url(self.url))
+        expression = r"""(async (endpoint) => {
               const started = performance.now();
               const audit = window.__repoMonitorBrowserAudit ||= {
                 longtasks: [], layoutShifts: [], api: [], support: {}
               };
               try {
-                const response = await fetch("/api/state", {cache: "no-store"});
+                const response = await fetch(endpoint, {cache: "no-store"});
                 await response.text();
                 const result = {ok: response.ok, status: response.status, duration_ms: performance.now() - started};
                 audit.api.push(result);
@@ -525,8 +531,8 @@ class BrowserAudit:
                 audit.api.push(result);
                 return result;
               }
-            })()"""
-        )
+            })(%s)""" % endpoint
+        value = self.devtools.evaluate(expression)
         return value if isinstance(value, dict) else {"ok": False, "status": 0}
 
     def runtime_checks(self) -> list[CheckResult]:
