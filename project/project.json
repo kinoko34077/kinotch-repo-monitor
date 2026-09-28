@@ -30,6 +30,7 @@
     "smoke": "run.cmd --smoke",
     "cached_state_benchmark": "_run_python.cmd tools\\benchmark_cached_state.py",
     "browser_interaction": "_run_python.cmd tools\\browser_interaction_check.py",
+    "browser_audit": "_run_python.cmd tools\\browser_audit.py --demo --output browser-audit.json --screenshot browser-audit.png",
     "deploy": ""
   },
   "paths": {

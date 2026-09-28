@@ -18,7 +18,18 @@ jobs:
       - run: cmd /c _run_python.cmd tools\benchmark_cached_state.py
       - run: cmd /c _run_python.cmd tools\browser_interaction_check.py
       - run: cmd /c _run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png
+      - run: cmd /c _run_python.cmd tools\browser_audit.py --demo --output browser-audit.json --screenshot browser-audit.png
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: repo-monitor-web-render
           path: web-render.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repo-monitor-browser-audit
+          path: |
+            browser-audit.json
+            browser-audit.png
+          if-no-files-found: ignore

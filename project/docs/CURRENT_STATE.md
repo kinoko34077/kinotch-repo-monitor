@@ -63,6 +63,14 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - audited secondary text uses `#59616c` or darker.
 - hidden devflow search matches (`work_status`, `repository_state`, `active_work`, `next_action`) expose a visible `一致:` reason instead of silently surfacing an otherwise unexplained card.
 
+## Reusable browser audit (Issue #29)
+
+- tools/browser_audit.py runs a deterministic demo or localhost audit through the browser CDP endpoint and emits terminal evidence plus a machine-readable JSON report.
+- The report covers navigation and /api/state timing, long-task/layout-shift observer support, CDP metrics, stable card/focus/selection/dialog/filter/scroll behavior, 1440px and 360px geometry, the CDP Accessibility tree, named controls, and live-region semantics.
+- Browser launch uses a bounded loopback DevTools connection. Chromium builds that write DevToolsActivePort are read with retry/backoff; builds that omit the file use the reserved loopback port directly.
+- The report keeps the screen-reader boundary narrow: DOM/AX evidence is reported, but actual screen-reader speech remains WARN until an assistive-technology process is attached.
+- Windows CI uploads browser-audit.json and browser-audit.png as the repo-monitor-browser-audit artifact.
+
 ## Verification evidence
 
 Original repaired-v0.5 Windows GitHub Actions run `36247759111` on main SHA `aba9f81da47ad87954bb9bf59f51dda7fb365634` passed unit/regression, compile, launcher smoke, localhost render/fetch, cached-state benchmark, real-browser interaction regression and Edge headless render/screenshot.
@@ -128,6 +136,8 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 - no Node/npm runtime, database, permanent background service, or repository mutation.
 
 ## Verification entry points
+
+- _run_python.cmd tools\browser_audit.py --demo --output browser-audit.json --screenshot browser-audit.png: reusable CDP audit and JSON/screenshot artifacts.
 
 - `verify.cmd`: unit/regression + compile + smoke + localhost render/fetch.
 - `run.cmd --smoke`: launcher path smoke.
