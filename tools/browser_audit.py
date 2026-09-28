@@ -536,6 +536,16 @@ class BrowserAudit:
         return value if isinstance(value, dict) else {"ok": False, "status": 0}
 
     def runtime_checks(self) -> list[CheckResult]:
+        try:
+            wait_until(
+                self.devtools,
+                "document.readyState === 'complete' && Boolean(document.querySelector('#search-input'))",
+                timeout=10.0,
+            )
+        except Exception as exc:
+            page_ready_error = str(exc)
+        else:
+            page_ready_error = None
         before_snapshot = self.page_snapshot()
         try:
             before_metrics = self.cdp_metrics()
@@ -556,6 +566,13 @@ class BrowserAudit:
             metrics_error = metrics_error or str(exc)
         navigation = after_snapshot.get("navigation", {})
         checks = [
+            CheckResult(
+                name="runtime.page_ready",
+                status="PASS" if page_ready_error is None else "FAIL",
+                measured={"ready": page_ready_error is None},
+                rule="wait for the loaded Repo Monitor surface before measuring runtime API behavior",
+                error=page_ready_error,
+            ),
             CheckResult(
                 name="runtime.navigation_timing",
                 status="PASS" if navigation.get("duration_ms", 0) >= 0 else "WARN",
