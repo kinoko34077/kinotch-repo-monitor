@@ -12,6 +12,9 @@ from typing import Callable, Iterable, TypeVar
 from urllib.parse import urlsplit
 
 
+GIT_COMMAND_TIMEOUT_SECONDS = 8.0
+
+
 @dataclass
 class RepoSnapshot:
     path: Path
@@ -141,7 +144,7 @@ def _run_git(repo: Path, *args: str) -> str:
         errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=8,
+        timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         check=False,
         env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )

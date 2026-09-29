@@ -1,8 +1,12 @@
+import json
 import threading
 import time
 import unittest
+from email.message import Message
+from unittest.mock import patch
+from urllib.error import HTTPError
 
-from repo_monitor.devflow_state import DevflowStateProvider, parse_control_issues
+from repo_monitor.devflow_state import DevflowStateProvider, _fetch_public_issues, parse_control_issues
 
 
 ISSUE_BODY = """## Repository
@@ -153,6 +157,57 @@ class DevflowStateTests(unittest.TestCase):
         self.assertIn("network down", failed.error)
         self.assertIn("example-repo", failed.repositories)
         self.assertEqual(immediate_retry.repositories, failed.repositories)
+        self.assertEqual(calls[0], 2)
+
+    def test_public_issue_fetch_follows_github_next_links(self):
+        class FakeResponse:
+            def __init__(self, payload, link=""):
+                self._payload = payload
+                self.headers = {"Link": link}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps(self._payload).encode("utf-8")
+
+        next_url = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2"
+        responses = [
+            FakeResponse([issue_payload()[0]], f'<{next_url}>; rel="next"'),
+            FakeResponse([{**issue_payload()[0], "number": 60, "title": "[REPO] second-repo"}]),
+        ]
+        requested = []
+
+        def fake_urlopen(request, timeout=3.0):
+            requested.append(request.full_url)
+            return responses.pop(0)
+
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
+            issues = _fetch_public_issues()
+
+        self.assertEqual([item["number"] for item in issues], [59, 60])
+        self.assertEqual(requested[1], next_url)
+
+    def test_provider_honors_rate_limit_reset_before_retrying(self):
+        calls = [0]
+        now = [1000.0]
+        headers = Message()
+        headers["X-RateLimit-Reset"] = "1100"
+
+        def fetcher():
+            calls[0] += 1
+            raise HTTPError("https://api.github.com/", 429, "rate limited", headers, None)
+
+        provider = DevflowStateProvider(fetcher=fetcher, clock=lambda: now[0], retry_seconds=30.0)
+        provider.snapshot()
+        now[0] = 1031.0
+        provider.snapshot()
+        self.assertEqual(calls[0], 1)
+        now[0] = 1100.0
+        provider.snapshot()
         self.assertEqual(calls[0], 2)
 
     def test_nonblocking_snapshot_refreshes_in_background_without_duplicate_fetches(self):
