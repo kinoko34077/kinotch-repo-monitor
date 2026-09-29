@@ -45,6 +45,17 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - after a prior successful fetch, a rejected refresh preserves the last successful devflow snapshot and marks it stale through the existing provider failure path.
 - this closes the Issue #27 consumer-side counterpart of devflow #127 without changing the overlay's read-only nature.
 
+### Issue #30 maintenance hardening (implementation branch; pending acceptance)
+
+The `fix/issue-30-monitor-hardening` branch completes the four deferred P3 follow-ups from Issue #27 without changing its accepted trust-boundary decisions:
+
+- public devflow Issue reads follow GitHub `Link` pagination, and `X-RateLimit-Reset` extends the normal retry floor after rate-limited failures;
+- scan shutdown defaults to a 9-second join window, covering the existing 8-second Git command timeout plus bounded grace, while persistent batch failures back off exponentially from the quiet-delay baseline to a 60-second cap and reset after success;
+- non-empty Chat URLs are accepted only when they are `http`/`https` URLs with a hostname; clearing remains supported;
+- folder-open re-checks that the registered path is still a directory immediately before invoking the OS opener.
+
+Focused TDD established RED on all four boundaries before production changes, then GREEN 25/25. A subsequent full `verify.cmd` run completed 90/90 unit/regression tests plus launcher/localhost/browser checks. These branch results do not alter accepted-main state until the normal PR/review/merge path completes.
+
 ### Stable browser reconciliation
 
 - cards are keyed by repository path identity and reused across routine refresh.
@@ -118,7 +129,7 @@ Issue #16 follow-up also used RED -> GREEN:
 - final repair caches canonical resolved identity, preserving existing path semantics while removing repeated filesystem I/O.
 - branch run `36246693419` and PR-event run `36247630486` passed all steps before merge.
 
-Issue #27 P2 trust-boundary findings are covered by PR #28. Its lower-priority pagination/rate-limit, scan-stop/backoff, Chat URL scheme and folder-open follow-ups remain separate maintenance scope and are not represented as fixed by this change.
+Issue #27 P2 trust-boundary findings are covered by PR #28. Its lower-priority pagination/rate-limit, scan-stop/backoff, Chat URL scheme and folder-open follow-ups are now implemented on the Issue #30 branch described above, but remain outside accepted main until that branch completes PR review/merge.
 
 ## Verification boundary
 

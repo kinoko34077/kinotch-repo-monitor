@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Iterable
+from urllib.parse import urlsplit
 
 from .config import AppConfig, ConfigStore, RepoEntry
 from .devflow_state import DevflowSnapshot
@@ -79,7 +80,7 @@ class RepoMonitorService:
     def start_scanning(self) -> None:
         self._scan_engine.start()  # type: ignore[attr-defined]
 
-    def stop_scanning(self, timeout: float = 2.0) -> None:
+    def stop_scanning(self, timeout: float | None = None) -> None:
         self._scan_engine.stop(timeout=timeout)  # type: ignore[attr-defined]
 
     def request_scan(self) -> None:
@@ -231,9 +232,17 @@ class RepoMonitorService:
         return result
 
     def set_chat_url(self, repo_key: str, chat_url: str) -> dict[str, object]:
+        normalized = str(chat_url).strip()
+        if normalized:
+            try:
+                parsed = urlsplit(normalized)
+            except ValueError as exc:
+                raise ValueError("chat_url must be an http(s) URL") from exc
+            if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("chat_url must be an http(s) URL")
         with self._lock:
             repo = self._find_repo_locked(repo_key)
-            repo.chat_url = str(chat_url).strip()
+            repo.chat_url = normalized
             self.store.save(self.config)
             return {"key": repo_key, "chat_url": repo.chat_url, "has_chat": bool(repo.chat_url)}
 
@@ -247,4 +256,6 @@ class RepoMonitorService:
     def open_folder(self, repo_key: str) -> None:
         with self._lock:
             path = self._find_repo_locked(repo_key).path
+        if not Path(path).is_dir():
+            raise ValueError("repository directory not found")
         self._folder_opener(path)

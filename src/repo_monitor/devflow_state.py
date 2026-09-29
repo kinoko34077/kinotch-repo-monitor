@@ -103,20 +103,34 @@ def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, De
     return states
 
 
+def _next_link(value: str) -> str | None:
+    for part in (value or "").split(","):
+        match = re.fullmatch(r'\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*', part)
+        if match and match.group(2) == "next":
+            return match.group(1)
+    return None
+
+
 def _fetch_public_issues() -> list[Mapping[str, object]]:
-    request = Request(
-        DEVFLOW_ISSUES_URL,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "KiNoTchRepoMonitor/0.3",
-        },
-    )
-    with urlopen(request, timeout=3.0) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if not isinstance(payload, list):
-        raise ValueError("devflow issues response must be a list")
-    return [item for item in payload if isinstance(item, dict)]
+    url: str | None = DEVFLOW_ISSUES_URL
+    issues: list[Mapping[str, object]] = []
+    while url is not None:
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "KiNoTchRepoMonitor/0.3",
+            },
+        )
+        with urlopen(request, timeout=3.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            next_url = _next_link(response.headers.get("Link", ""))
+        if not isinstance(payload, list):
+            raise ValueError("devflow issues response must be a list")
+        issues.extend(item for item in payload if isinstance(item, dict))
+        url = next_url
+    return issues
 
 
 class DevflowStateProvider:
@@ -137,6 +151,7 @@ class DevflowStateProvider:
         self._fetched_at: float | None = None
         self._last_attempt_at: float | None = None
         self._error: str | None = None
+        self._retry_not_before: float | None = None
         self._refreshing = False
 
     def _current_locked(self, *, stale: bool | None = None) -> DevflowSnapshot:
@@ -146,11 +161,12 @@ class DevflowStateProvider:
 
     def _refresh_due_locked(self, now: float) -> bool:
         fresh = self._fetched_at is not None and now - self._fetched_at < self._ttl_seconds
-        retry_blocked = (
-            self._error is not None
-            and self._last_attempt_at is not None
-            and now - self._last_attempt_at < self._retry_seconds
-        )
+        retry_until = None
+        if self._error is not None and self._last_attempt_at is not None:
+            retry_until = self._last_attempt_at + self._retry_seconds
+            if self._retry_not_before is not None:
+                retry_until = max(retry_until, self._retry_not_before)
+        retry_blocked = retry_until is not None and now < retry_until
         return not fresh and not retry_blocked
 
     def _apply_success(self, repositories: dict[str, DevflowRepoState], fetched_at: float) -> None:
@@ -158,11 +174,19 @@ class DevflowStateProvider:
             self._repositories = repositories
             self._fetched_at = fetched_at
             self._error = None
+            self._retry_not_before = None
             self._refreshing = False
 
     def _apply_failure(self, exc: Exception) -> None:
+        headers = getattr(exc, "headers", None)
+        reset_value = headers.get("X-RateLimit-Reset") if headers is not None else None
+        try:
+            retry_not_before = float(reset_value) if reset_value is not None else None
+        except (TypeError, ValueError):
+            retry_not_before = None
         with self._lock:
             self._error = str(exc) or exc.__class__.__name__
+            self._retry_not_before = retry_not_before
             self._refreshing = False
 
     def _background_refresh(self, attempted_at: float) -> None:

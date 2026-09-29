@@ -129,6 +129,34 @@ class ScanEngineTests(unittest.TestCase):
         finally:
             engine.stop()
 
+    def test_stop_default_waits_for_inflight_inspector_beyond_two_seconds(self):
+        started = threading.Event()
+        finished = threading.Event()
+
+        def inspector(paths, *, max_workers=8):
+            started.set()
+            time.sleep(2.15)
+            finished.set()
+            return [RepoSnapshot(path=Path(paths[0]))]
+
+        engine = LocalScanEngine(lambda: [Path("C:/repo")], inspector=inspector, active_delay=60, quiet_delay=60)
+        engine.start()
+        self.assertTrue(started.wait(1))
+        engine.stop()
+        self.assertTrue(finished.is_set(), "default stop returned before an in-flight git-timeout-sized scan could finish")
+
+    def test_persistent_scan_failures_use_exponential_backoff_and_success_resets_it(self):
+        now = [1000.0]
+        engine = LocalScanEngine(lambda: [], clock=lambda: now[0], quiet_delay=5.0)
+
+        first = engine._publish_failure(now[0], RuntimeError("one"))
+        second = engine._publish_failure(now[0], RuntimeError("two"))
+        self.assertEqual((first, second), (5.0, 10.0))
+
+        engine._publish_success(now[0], [], [])
+        after_success = engine._publish_failure(now[0], RuntimeError("again"))
+        self.assertEqual(after_success, 5.0)
+
     def test_scan_delay_uses_active_or_quiet_post_completion_cadence(self):
         active = RepoSnapshot(path=Path("C:/active"), dirty=True, latest_activity_ts=990.0)
         idle = RepoSnapshot(path=Path("C:/idle"), dirty=True, latest_activity_ts=500.0)

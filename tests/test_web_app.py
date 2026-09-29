@@ -151,6 +151,44 @@ class WebAppServiceTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 service.set_chat_url("missing", "https://example.com")
 
+    def test_chat_url_rejects_non_http_schemes_and_allows_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            store = self.make_store(root, [RepoEntry("repo", str(repo), "https://chatgpt.com/c/existing")])
+            service = RepoMonitorService(store=store, discoverer=lambda _roots: [], scan_engine=_FakeScanEngine())
+
+            for invalid in ("javascript:alert(1)", "file:///tmp/chat", "mailto:test@example.com", "https://"):
+                with self.subTest(invalid=invalid):
+                    with self.assertRaises(ValueError):
+                        service.set_chat_url(repo_identity(repo), invalid)
+            self.assertEqual(store.load().repositories[0].chat_url, "https://chatgpt.com/c/existing")
+
+            cleared = service.set_chat_url(repo_identity(repo), "   ")
+            self.assertEqual(cleared["chat_url"], "")
+            self.assertFalse(cleared["has_chat"])
+
+    def test_open_folder_rechecks_directory_exists_before_opening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            opened = []
+            store = self.make_store(root, [RepoEntry("repo", str(repo))])
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=_FakeScanEngine(),
+                folder_opener=opened.append,
+            )
+            key = repo_identity(repo)
+            repo.rmdir()
+
+            with self.assertRaises(ValueError):
+                service.open_folder(key)
+            self.assertEqual(opened, [])
+
     def test_remove_and_rediscover_update_registry_without_losing_existing_chat_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

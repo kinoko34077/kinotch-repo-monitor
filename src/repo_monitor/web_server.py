@@ -236,7 +236,7 @@ def serve(
             pass
     finally:
         try:
-            app.stop_scanning(timeout=2.0)
+            app.stop_scanning()
         finally:
             server.server_close()
     return 0

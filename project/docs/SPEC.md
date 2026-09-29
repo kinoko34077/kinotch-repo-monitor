@@ -26,6 +26,8 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - If a cycle fails at the batch level, retain the last completed generation and expose the scan error separately.
 - Multiple scan requests received while a cycle is running coalesce to at most one immediate follow-up cycle; no unbounded queue is allowed.
 - After a completed generation containing `ACTIVE` or `IDLE`, use a 2-second post-completion cadence. Otherwise use 5 seconds by default.
+- Consecutive batch-level scan failures back off exponentially from the quiet-delay baseline, capped at 60 seconds by default; any successful generation resets the failure count.
+- Normal shutdown waits long enough for the 8-second per-Git-command timeout plus a bounded grace interval so an in-flight scan is not abandoned merely because the previous 2-second join window elapsed. Explicit caller timeouts remain bounded overrides.
 - Starting the Web server must not wait for the first Git scan to complete.
 
 ### Scan triggers
@@ -41,6 +43,7 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 ### Registry and configuration
 
 - Persist scan roots, repository path/name, ChatGPT URL, and monitoring membership outside the repository in the user's config directory.
+- A non-empty saved Chat URL must parse as `http` or `https` with a hostname; an empty value clears the association. Other schemes and hostless URLs fail before persistence.
 - `monitored=false` removes a repository from monitoring/UI without deleting its metadata or ChatGPT URL.
 - Rediscovery must preserve an existing `monitored=false` entry; discovery alone does not silently re-enable it.
 - Explicit manual add of the same path re-enables monitoring and retains its saved ChatGPT URL.
@@ -48,13 +51,14 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 
 ### devflow overlay
 
-- Read open `[REPO] <repository>` Control Issues from public `kinoko34077/devflow` as a read-only overlay.
+- Read open `[REPO] <repository>` Control Issues from public `kinoko34077/devflow` as a read-only overlay. Follow GitHub `Link: ... rel="next"` pagination until the open-Issue result set is complete.
 - Accept a Repository Control only when its `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`; missing or other associations fail closed.
 - Ignore GitHub pull-request objects even if their title resembles `[REPO] <repository>`.
 - If more than one trusted open Control resolves to the same repository name case-insensitively, reject that refresh as ambiguous; after a prior success, retain the last successful snapshot as stale rather than applying last-wins state.
 - Keep `Work Status`, `Repository State`, `Active Work`, and `Next Action` separate from local activity status.
 - Match local basename to `[REPO]` control name case-insensitively in v0.5.
-- Cache one open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.
+- Cache one complete open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.
+- Failed refreshes use the normal retry delay, but when GitHub supplies `X-RateLimit-Reset` the provider will not retry before that reset instant.
 - GitHub latency/failure must not block local `/api/state` or local scan cycles.
 - On refresh failure after a successful fetch, retain the last successful devflow snapshot and mark it stale.
 - `IMPLEMENTING` and related states describe workflow phase, not an executing ChatGPT turn.
@@ -85,9 +89,9 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - `POST /api/refresh`: request/coalesce a local Git scan and return promptly.
 - `POST /api/rediscover`: rediscover configured roots, merge/persist registry, and request scan only when monitored membership changed.
 - `POST /api/repos/add`: validate `.git`, explicitly enable monitoring for the path, persist it, and request a scan.
-- `POST /api/repos/<repo-key>/chat-url`: update saved ChatGPT URL without Git scan.
+- `POST /api/repos/<repo-key>/chat-url`: update or clear the saved ChatGPT URL without Git scan; non-empty values must be `http`/`https` URLs with a hostname.
 - `POST /api/repos/<repo-key>/remove`: set monitoring membership false while preserving metadata/Chat URL; no Git scan.
-- `POST /api/repos/<repo-key>/open-folder`: ask the local OS to open the folder; no Git scan.
+- `POST /api/repos/<repo-key>/open-folder`: re-check that the registered path is still a directory, then ask the local OS to open it; no Git scan.
 
 Unknown repositories return 404. Invalid JSON/action data returns 400. Mutation requests are JSON-only and protected by loopback Host/Origin checks. Static files use a fixed allowlist.
 
@@ -99,7 +103,9 @@ Unknown repositories return 404. Invalid JSON/action data returns 400. Mutation 
 - Active/idle post-completion scan cadence: 2 seconds.
 - Quiet post-completion scan cadence: 5 seconds.
 - devflow cache TTL: 120 seconds.
-- devflow retry delay after failure: 30 seconds.
+- devflow retry delay after failure: 30 seconds minimum; `X-RateLimit-Reset` may extend the retry not-before time.
+- persistent scan failure backoff: exponential from the 5-second quiet baseline, capped at 60 seconds; success resets it.
+- default scan shutdown join: 9 seconds (8-second Git command timeout plus 1-second grace).
 - ACTIVE: dirty and latest changed-file mtime <= 60 seconds.
 - IDLE: dirty and latest changed-file mtime > 60 and <= 600 seconds, or dirty with unknown mtime.
 - STALE: dirty and latest changed-file mtime > 600 seconds.

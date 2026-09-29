@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .git_inspector import RepoSnapshot, activity_age_seconds, inspect_repositories
+from .git_inspector import GIT_COMMAND_TIMEOUT_SECONDS, RepoSnapshot, activity_age_seconds, inspect_repositories
 from .registry import repo_identity
 from .status import DisplayStatus, classify_status
 
@@ -65,6 +65,7 @@ class LocalScanEngine:
         stale_seconds: int = 600,
         active_delay: float = 2.0,
         quiet_delay: float = 5.0,
+        failure_backoff_max: float = 60.0,
     ) -> None:
         self._repository_provider = repository_provider
         self._inspector = inspector
@@ -74,6 +75,8 @@ class LocalScanEngine:
         self._stale_seconds = int(stale_seconds)
         self._active_delay = float(active_delay)
         self._quiet_delay = float(quiet_delay)
+        self._failure_backoff_max = max(self._quiet_delay, float(failure_backoff_max))
+        self._consecutive_failures = 0
         self._condition = threading.Condition()
         self._snapshot = LocalSnapshot()
         self._thread: threading.Thread | None = None
@@ -95,13 +98,14 @@ class LocalScanEngine:
             self._thread.start()
             self._condition.notify_all()
 
-    def stop(self, timeout: float = 2.0) -> None:
+    def stop(self, timeout: float | None = None) -> None:
         with self._condition:
             self._stop_requested = True
             self._condition.notify_all()
             thread = self._thread
         if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=max(0.0, float(timeout)))
+            join_timeout = GIT_COMMAND_TIMEOUT_SECONDS + 1.0 if timeout is None else max(0.0, float(timeout))
+            thread.join(timeout=join_timeout)
 
     def snapshot(self) -> LocalSnapshot:
         with self._condition:
@@ -171,6 +175,7 @@ class LocalScanEngine:
         )
         with self._condition:
             generation = self._snapshot.generation + 1
+            self._consecutive_failures = 0
             followup = self._pending_followup
             self._pending_followup = False
             self._snapshot = LocalSnapshot(
@@ -193,6 +198,11 @@ class LocalScanEngine:
         failed_at = self._clock()
         message = str(exc).strip() or exc.__class__.__name__
         with self._condition:
+            self._consecutive_failures += 1
+            failure_delay = min(
+                self._quiet_delay * (2 ** (self._consecutive_failures - 1)),
+                self._failure_backoff_max,
+            )
             followup = self._pending_followup
             self._pending_followup = False
             self._snapshot = replace(
@@ -206,7 +216,7 @@ class LocalScanEngine:
             if followup:
                 self._scan_requested = True
             self._condition.notify_all()
-        return 0.0 if followup else self._quiet_delay
+        return 0.0 if followup else failure_delay
 
     def _run(self) -> None:
         delay = 0.0
