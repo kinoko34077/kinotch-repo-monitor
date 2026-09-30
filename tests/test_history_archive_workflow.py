@@ -32,6 +32,16 @@ class HistoryArchiveWorkflowTests(unittest.TestCase):
         self.assertIn("grep -Ev '^(archive|tracking)/'", self.text)
         self.assertIn("Unexpected changed paths; refusing archive commit", self.text)
 
+    def test_event_runs_are_not_subject_to_repository_wide_pending_cancellation(self):
+        self.assertNotIn("\nconcurrency:\n", self.text)
+
+    def test_archive_push_has_bounded_contention_retry(self):
+        self.assertIn("for attempt in 1 2 3 4; do", self.text)
+        self.assertIn("git pull --rebase origin main", self.text)
+        self.assertIn("git push origin HEAD:main", self.text)
+        self.assertIn("git rebase --abort", self.text)
+        self.assertIn("Archive push failed after 4 attempts", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
