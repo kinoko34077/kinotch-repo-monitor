@@ -9,10 +9,6 @@ on:
     - cron: "23 3 * * *"
   workflow_dispatch:
 
-concurrency:
-  group: history-archive-${{ github.repository }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
   issues: read
@@ -96,5 +92,18 @@ jobs:
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
           git commit -m "archive: collect ${{ github.repository }} edit history"
-          git pull --rebase origin main
-          git push origin HEAD:main
+
+          for attempt in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+
+            git rebase --abort >/dev/null 2>&1 || true
+
+            if [[ "$attempt" -eq 4 ]]; then
+              echo "Archive push failed after 4 attempts." >&2
+              exit 1
+            fi
+
+            sleep $((attempt * 2))
+          done
