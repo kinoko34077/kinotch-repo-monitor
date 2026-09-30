@@ -32,8 +32,13 @@ class HistoryArchiveWorkflowTests(unittest.TestCase):
         self.assertIn("grep -Ev '^(archive|tracking)/'", self.text)
         self.assertIn("Unexpected changed paths; refusing archive commit", self.text)
 
-    def test_event_runs_are_not_subject_to_repository_wide_pending_cancellation(self):
-        self.assertNotIn("\nconcurrency:\n", self.text)
+    def test_event_concurrency_is_scoped_to_exact_content_object(self):
+        self.assertIn(
+            "group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}-${{ github.event.comment.id || 'issue' }}",
+            self.text,
+        )
+        self.assertIn("cancel-in-progress: false", self.text)
+        self.assertNotIn("group: history-archive-${{ github.repository }}\n", self.text)
 
     def test_archive_push_has_bounded_contention_retry(self):
         self.assertIn("for attempt in 1 2 3 4; do", self.text)
