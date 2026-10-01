@@ -25,6 +25,7 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("audit_freshness", js)
         self.assertIn("audit_evidence", js)
         self.assertIn("audit-snapshot", js)
+        self.assertIn("view.auditSnapshot.hidden = !workflow", js)
         self.assertIn('block.addEventListener("toggle"', js)
 
     def test_javascript_exposes_remote_repo_action_and_human_age_units(self):
