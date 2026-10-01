@@ -18,6 +18,14 @@ class _FakeDevflowProvider:
                     repository="example-repo",
                     work_status="IMPLEMENTING",
                     repository_state="ACTIVE",
+                    audit_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    audit_ref="main",
+                    last_audit_at="2026-10-01T09:02:38Z",
+                    audit_depth="CONTROL",
+                    audit_scope="Stage-2 fleet control audit",
+                    audit_evidence="run 36840152955 / artifact 11150403935",
+                    last_deep_audit_at="2026-09-29T04:05:00Z",
+                    audit_freshness="CURRENT",
                     active_work="example-repo#12 — implement",
                     next_action="VERIFY — run CI",
                     issue_number=59,
@@ -85,6 +93,10 @@ class WebAppDevflowTests(unittest.TestCase):
             self.assertEqual(by_name["example-repo"]["status"], "CLEAN")
             self.assertEqual(by_name["example-repo"]["devflow"]["work_status"], "IMPLEMENTING")
             self.assertEqual(by_name["example-repo"]["devflow"]["repository_state"], "ACTIVE")
+            self.assertEqual(by_name["example-repo"]["devflow"]["audit_depth"], "CONTROL")
+            self.assertEqual(by_name["example-repo"]["devflow"]["last_audit_at"], "2026-10-01T09:02:38Z")
+            self.assertEqual(by_name["example-repo"]["devflow"]["audit_freshness"], "CURRENT")
+            self.assertEqual(by_name["example-repo"]["devflow"]["audit_evidence"], "run 36840152955 / artifact 11150403935")
             self.assertEqual(by_name["example-repo"]["devflow"]["next_action"], "VERIFY — run CI")
             self.assertIsNone(by_name["local-only"]["devflow"])
             self.assertEqual(state["devflow"]["fetched_at"], 1000.0)

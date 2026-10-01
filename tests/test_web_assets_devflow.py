@@ -20,6 +20,12 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("active_work", js)
         self.assertIn("next_action", js)
         self.assertIn("expandedWorkflows", js)
+        self.assertIn("audit_depth", js)
+        self.assertIn("last_audit_at", js)
+        self.assertIn("audit_freshness", js)
+        self.assertIn("audit_evidence", js)
+        self.assertIn("audit-snapshot", js)
+        self.assertIn("view.auditSnapshot.hidden = !workflow", js)
         self.assertIn('block.addEventListener("toggle"', js)
 
     def test_javascript_exposes_remote_repo_action_and_human_age_units(self):
@@ -35,6 +41,7 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("data-work-status", css)
         self.assertIn(".workflow-next-preview", css)
         self.assertIn(".workflow-details", css)
+        self.assertIn(".audit-snapshot", css)
 
 
 if __name__ == "__main__":
