@@ -25,6 +25,38 @@ ISSUE_BODY = """## Repository
 
 `ACTIVE`
 
+## Audit SHA
+
+`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+
+## Audit Ref
+
+`main`
+
+## Last Audit At
+
+`2026-10-01T09:02:38Z`
+
+## Audit Depth
+
+`CONTROL`
+
+## Audit Scope
+
+`Stage-2 fleet control audit`
+
+## Audit Evidence
+
+`run 36840152955 / artifact 11150403935`
+
+## Last Deep Audit At
+
+`2026-09-29T04:05:00Z`
+
+## Audit Freshness
+
+`CURRENT`
+
 ## Active Work
 
 `example-repo#12` — implement the feature.
@@ -66,6 +98,14 @@ class DevflowStateTests(unittest.TestCase):
         state = states["example-repo"]
         self.assertEqual(state.work_status, "IMPLEMENTING")
         self.assertEqual(state.repository_state, "ACTIVE")
+        self.assertEqual(state.audit_sha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        self.assertEqual(state.audit_ref, "main")
+        self.assertEqual(state.last_audit_at, "2026-10-01T09:02:38Z")
+        self.assertEqual(state.audit_depth, "CONTROL")
+        self.assertEqual(state.audit_scope, "Stage-2 fleet control audit")
+        self.assertEqual(state.audit_evidence, "run 36840152955 / artifact 11150403935")
+        self.assertEqual(state.last_deep_audit_at, "2026-09-29T04:05:00Z")
+        self.assertEqual(state.audit_freshness, "CURRENT")
         self.assertEqual(state.active_work, "example-repo#12 — implement the feature.")
         self.assertEqual(state.next_action, "VERIFY — run CI")
         self.assertEqual(state.issue_number, 59)
