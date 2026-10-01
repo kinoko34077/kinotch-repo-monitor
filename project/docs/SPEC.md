@@ -56,6 +56,8 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Ignore GitHub pull-request objects even if their title resembles `[REPO] <repository>`.
 - If more than one trusted open Control resolves to the same repository name case-insensitively, reject that refresh as ambiguous; after a prior success, retain the last successful snapshot as stale rather than applying last-wins state.
 - Keep `Work Status`, `Repository State`, `Active Work`, and `Next Action` separate from local activity status.
+- Project canonical audit provenance from the same trusted Control when present: `Audit SHA`, `Audit Ref`, `Last Audit At`, `Audit Depth`, `Audit Scope`, `Audit Evidence`, optional `Last Deep Audit At`, and optional `Audit Freshness`.
+- Repo Monitor must not infer missing audit timestamps/depths and must not calculate an independent `Audit Freshness`; it only displays the Control projection supplied by devflow.
 - Match local basename to `[REPO]` control name case-insensitively in v0.5.
 - Cache one complete open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.
 - Failed refreshes use the normal retry delay, but when GitHub supplies `X-RateLimit-Reset` the provider will not retry before that reset instant.
@@ -77,6 +79,8 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Routine timestamp/count regions are not live announcements. A dedicated status region announces meaningful user-triggered progress/success/error.
 - Secondary normal text must use the audited contrast token (`#59616c` or darker against white).
 - Search may include collapsed devflow fields, but any match that depends on a hidden field must render a visible match-reason snippet without auto-expanding the details.
+- When audit provenance exists, cards show a compact always-visible audit snapshot using the available depth/date/freshness values; expanded devflow details expose audit Ref/SHA, evidence, and last-deep-audit value.
+- Search may include audit provenance fields; a match that depends on one of those collapsed values must use the same visible match-reason behavior.
 - Search/filtering must not mutate persistent state.
 - Repository data is inserted with text/property DOM APIs, never unsanitized `innerHTML`.
 
