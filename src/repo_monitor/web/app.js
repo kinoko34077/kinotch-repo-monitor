@@ -304,6 +304,10 @@ function ensureCardView(repo) {
   block.append(workflowBody);
   card.append(block);
 
+  view.auditSnapshot = element("p", "audit-snapshot");
+  view.auditSnapshot.hidden = true;
+  card.append(view.auditSnapshot);
+
   view.searchReason = element("p", "search-match-reason");
   view.searchReason.hidden = true;
   card.append(view.searchReason);
@@ -389,7 +393,10 @@ function updateCardView(view, repo) {
       workflow.last_audit_at,
       workflow.audit_freshness,
     ].filter(Boolean);
-    setText(view.workflowAudit, auditParts.length ? auditParts.join(" · ") : "--");
+    const auditSummary = auditParts.length ? auditParts.join(" · ") : "--";
+    setText(view.workflowAudit, auditSummary);
+    view.auditSnapshot.hidden = auditParts.length === 0;
+    if (auditParts.length) setText(view.auditSnapshot, "監査 " + auditSummary);
     const refParts = [workflow.audit_ref, workflow.audit_sha ? shortText(workflow.audit_sha, 14) : ""].filter(Boolean);
     setText(view.workflowAuditRef, refParts.length ? refParts.join(" @ ") : "--");
     setText(view.workflowAuditEvidence, workflow.audit_evidence || "--");
