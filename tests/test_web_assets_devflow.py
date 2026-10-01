@@ -40,6 +40,7 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("data-work-status", css)
         self.assertIn(".workflow-next-preview", css)
         self.assertIn(".workflow-details", css)
+        self.assertIn(".audit-snapshot", css)
 
 
 if __name__ == "__main__":
