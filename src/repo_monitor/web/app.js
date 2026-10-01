@@ -380,6 +380,7 @@ function updateCardView(view, repo) {
 
   const workflow = repo.devflow;
   view.workflow.hidden = !workflow;
+  view.auditSnapshot.hidden = !workflow;
   if (workflow) {
     setText(view.workflowBadge, DEVFLOW_STATUS_LABELS[workflow.work_status] || workflow.work_status || "devflow");
     view.workflowBadge.dataset.workStatus = workflow.work_status || "UNKNOWN";
