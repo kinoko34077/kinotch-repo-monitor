@@ -159,6 +159,14 @@ function searchMatch(repo) {
     ["repo", workflow.repository_state],
     ["作業", workflow.active_work],
     ["次", workflow.next_action],
+    ["監査SHA", workflow.audit_sha],
+    ["監査Ref", workflow.audit_ref],
+    ["監査日時", workflow.last_audit_at],
+    ["監査深度", workflow.audit_depth],
+    ["監査範囲", workflow.audit_scope],
+    ["監査証拠", workflow.audit_evidence],
+    ["深監査", workflow.last_deep_audit_at],
+    ["監査鮮度", workflow.audit_freshness],
   ];
   for (const [label, value] of hiddenFields) {
     const text = String(value || "");
@@ -282,6 +290,11 @@ function ensureCardView(repo) {
   view.workflowRepo = addWorkflowMeta("repo");
   view.workflowWork = addWorkflowMeta("作業");
   view.workflowNext = addWorkflowMeta("次");
+  view.workflowAudit = addWorkflowMeta("監査");
+  view.workflowAudit.className = "audit-snapshot";
+  view.workflowAuditRef = addWorkflowMeta("監査Ref");
+  view.workflowAuditEvidence = addWorkflowMeta("監査証拠");
+  view.workflowLastDeep = addWorkflowMeta("深監査");
   workflowBody.append(workflowMeta);
   view.workflowLink = element("a", "workflow-link");
   view.workflowLink.target = "_blank";
@@ -371,6 +384,16 @@ function updateCardView(view, repo) {
     setText(view.workflowRepo, workflow.repository_state || "--");
     setText(view.workflowWork, workflow.active_work || "--");
     setText(view.workflowNext, workflow.next_action || "--");
+    const auditParts = [
+      workflow.audit_depth,
+      workflow.last_audit_at,
+      workflow.audit_freshness,
+    ].filter(Boolean);
+    setText(view.workflowAudit, auditParts.length ? auditParts.join(" · ") : "--");
+    const refParts = [workflow.audit_ref, workflow.audit_sha ? shortText(workflow.audit_sha, 14) : ""].filter(Boolean);
+    setText(view.workflowAuditRef, refParts.length ? refParts.join(" @ ") : "--");
+    setText(view.workflowAuditEvidence, workflow.audit_evidence || "--");
+    setText(view.workflowLastDeep, workflow.last_deep_audit_at || "--");
     const issueUrl = safeWebUrl(workflow.issue_url);
     view.workflowLink.hidden = !issueUrl;
     if (issueUrl) {
