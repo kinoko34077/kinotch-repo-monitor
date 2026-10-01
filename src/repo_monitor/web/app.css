@@ -284,6 +284,13 @@ input:focus, select:focus { border-color: #808997; box-shadow: 0 0 0 3px rgba(69
 .repo-meta dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-path { margin: 12px 0 0; color: var(--muted); font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-error { margin: 10px 0 0; color: #9b3333; font-size: 0.76rem; overflow-wrap: anywhere; }
+.audit-snapshot {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .search-match-reason { margin: 8px 0 0; color: #445466; font-size: 0.72rem; line-height: 1.35; overflow-wrap: anywhere; }
 
 .card-actions {
