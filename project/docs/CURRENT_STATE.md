@@ -8,6 +8,16 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 
 ## v0.5 implemented behavior
 
+### Audit provenance projection — Issue #37 / PR #38
+
+- Repo Monitor parses the canonical audit provenance fields from the same trusted devflow `[REPO]` Control already used for workflow state.
+- Supported projection fields are `Audit SHA`, `Audit Ref`, `Last Audit At`, `Audit Depth`, `Audit Scope`, `Audit Evidence`, optional `Last Deep Audit At`, and optional `Audit Freshness`.
+- The browser card exposes a compact always-visible audit snapshot and retains Ref/SHA/evidence/deep-audit detail inside the existing devflow expansion.
+- Audit provenance participates in search through the existing visible match-reason contract.
+- Missing historical provenance remains empty; Repo Monitor does not infer timestamps/depth and does not calculate its own freshness value.
+- This change adds no GitHub Project API dependency, token management, workflow-state writeback, or new audit scanner.
+- PR #38 is file-disjoint from review-gated history-listener PR #36.
+
 ### Cached local state / scan ownership
 
 - `GET /api/state` composes registry metadata, the latest completed local Git snapshot and cached devflow state; it does not run Git commands.
