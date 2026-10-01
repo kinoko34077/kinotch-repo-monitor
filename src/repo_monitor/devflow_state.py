@@ -23,6 +23,14 @@ class DevflowRepoState:
     issue_number: int
     issue_url: str
     updated_at: str
+    audit_sha: str = ""
+    audit_ref: str = ""
+    last_audit_at: str = ""
+    audit_depth: str = ""
+    audit_scope: str = ""
+    audit_evidence: str = ""
+    last_deep_audit_at: str = ""
+    audit_freshness: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -34,6 +42,14 @@ class DevflowRepoState:
             "issue_number": self.issue_number,
             "issue_url": self.issue_url,
             "updated_at": self.updated_at,
+            "audit_sha": self.audit_sha,
+            "audit_ref": self.audit_ref,
+            "last_audit_at": self.last_audit_at,
+            "audit_depth": self.audit_depth,
+            "audit_scope": self.audit_scope,
+            "audit_evidence": self.audit_evidence,
+            "last_deep_audit_at": self.last_deep_audit_at,
+            "audit_freshness": self.audit_freshness,
         }
 
 
@@ -98,6 +114,14 @@ def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, De
             issue_number=int(issue.get("number") or 0),
             issue_url=str(issue.get("html_url") or ""),
             updated_at=str(issue.get("updated_at") or ""),
+            audit_sha=_clean_value(parts.get("audit sha", "")),
+            audit_ref=_clean_value(parts.get("audit ref", "")),
+            last_audit_at=_clean_value(parts.get("last audit at", "")),
+            audit_depth=_clean_value(parts.get("audit depth", "")),
+            audit_scope=_clean_value(parts.get("audit scope", "")),
+            audit_evidence=_clean_value(parts.get("audit evidence", "")),
+            last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
+            audit_freshness=_clean_value(parts.get("audit freshness", "")),
         )
         seen_names[folded] = str(issue.get("number") or 0)
     return states
