@@ -12,6 +12,12 @@ DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?st
 CONTROL_PREFIX = "[REPO] "
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
+AUDIT_FRESHNESS_LABELS = {
+    "devflow:audit-freshness:current": "CURRENT",
+    "devflow:audit-freshness:drifted": "DRIFTED",
+    "devflow:audit-freshness:unknown": "UNKNOWN",
+}
+
 
 @dataclass(frozen=True)
 class DevflowRepoState:
@@ -78,6 +84,23 @@ def _clean_value(value: str) -> str:
     return value.strip().replace("`", "").strip()
 
 
+def _audit_freshness_projection(issue: Mapping[str, object]) -> str:
+    matches: list[str] = []
+    for raw in issue.get("labels") or []:
+        if isinstance(raw, str):
+            name = raw.strip()
+        elif isinstance(raw, Mapping):
+            name = str(raw.get("name") or "").strip()
+        else:
+            name = ""
+        value = AUDIT_FRESHNESS_LABELS.get(name)
+        if value is not None:
+            matches.append(value)
+    if len(matches) > 1:
+        raise ValueError("conflicting Audit Freshness projection labels")
+    return matches[0] if matches else ""
+
+
 def _is_trusted_control_issue(issue: Mapping[str, object]) -> bool:
     if "pull_request" in issue:
         return False
@@ -121,7 +144,7 @@ def parse_control_issues(issues: Iterable[Mapping[str, object]]) -> dict[str, De
             audit_scope=_clean_value(parts.get("audit scope", "")),
             audit_evidence=_clean_value(parts.get("audit evidence", "")),
             last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
-            audit_freshness=_clean_value(parts.get("audit freshness", "")),
+            audit_freshness=_audit_freshness_projection(issue),
         )
         seen_names[folded] = str(issue.get("number") or 0)
     return states

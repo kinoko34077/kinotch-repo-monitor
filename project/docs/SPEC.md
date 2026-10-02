@@ -56,8 +56,10 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Ignore GitHub pull-request objects even if their title resembles `[REPO] <repository>`.
 - If more than one trusted open Control resolves to the same repository name case-insensitively, reject that refresh as ambiguous; after a prior success, retain the last successful snapshot as stale rather than applying last-wins state.
 - Keep `Work Status`, `Repository State`, `Active Work`, and `Next Action` separate from local activity status.
-- Project canonical audit provenance from the same trusted Control when present: `Audit SHA`, `Audit Ref`, `Last Audit At`, `Audit Depth`, `Audit Scope`, `Audit Evidence`, optional `Last Deep Audit At`, and optional `Audit Freshness`.
-- Repo Monitor must not infer missing audit timestamps/depths and must not calculate an independent `Audit Freshness`; it only displays the Control projection supplied by devflow.
+- Project canonical audit provenance from the same trusted Control body when present: `Audit SHA`, `Audit Ref`, `Last Audit At`, `Audit Depth`, `Audit Scope`, `Audit Evidence`, and optional `Last Deep Audit At`.
+- Consume derived `Audit Freshness` only from exactly one devflow machine-owned Control label: `devflow:audit-freshness:current`, `devflow:audit-freshness:drifted`, or `devflow:audit-freshness:unknown`. A persisted Control-body `Audit Freshness` value is not authority and is ignored.
+- If no recognized freshness label is present, leave `audit_freshness` empty without local re-derivation. If multiple recognized freshness labels are present, reject that devflow refresh as ambiguous; after a prior success, preserve the last-good snapshot through the existing stale-provider path.
+- Repo Monitor must not resolve Audit Ref heads, infer missing audit timestamps/depths, or calculate an independent `Audit Freshness`; it only consumes the devflow-owned projection.
 - Match local basename to `[REPO]` control name case-insensitively in v0.5.
 - Cache one complete open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.
 - Failed refreshes use the normal retry delay, but when GitHub supplies `X-RateLimit-Reset` the provider will not retry before that reset instant.
