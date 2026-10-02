@@ -53,9 +53,6 @@ ISSUE_BODY = """## Repository
 
 `2026-09-29T04:05:00Z`
 
-## Audit Freshness
-
-`CURRENT`
 
 ## Active Work
 
@@ -76,6 +73,7 @@ def issue_payload():
             "html_url": "https://github.com/kinoko34077/devflow/issues/59",
             "updated_at": "2026-09-26T03:00:00Z",
             "author_association": "OWNER",
+            "labels": [{"name": "devflow:audit-freshness:current"}],
         }
     ]
 
@@ -150,6 +148,76 @@ class DevflowStateTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "duplicate trusted Repository Control"):
             parse_control_issues([trusted, duplicate])
+
+    def test_body_audit_freshness_is_ignored_in_favor_of_machine_projection_label(self):
+        issue = issue_payload()[0]
+        issue["body"] = ISSUE_BODY + "\n## Audit Freshness\n\n`DRIFTED`\n"
+        issue["labels"] = [{"name": "devflow:audit-freshness:current"}]
+
+        states = parse_control_issues([issue])
+
+        self.assertEqual(states["example-repo"].audit_freshness, "CURRENT")
+
+    def test_missing_projection_label_does_not_rederive_freshness(self):
+        issue = issue_payload()[0]
+        issue["labels"] = []
+
+        states = parse_control_issues([issue])
+
+        self.assertEqual(states["example-repo"].audit_freshness, "")
+
+    def test_conflicting_projection_labels_fail_closed(self):
+        issue = issue_payload()[0]
+        issue["labels"] = [
+            {"name": "devflow:audit-freshness:current"},
+            {"name": "devflow:audit-freshness:drifted"},
+        ]
+
+        with self.assertRaisesRegex(ValueError, "conflicting Audit Freshness projection"):
+            parse_control_issues([issue])
+
+    def test_unrelated_labels_do_not_affect_projection(self):
+        issue = issue_payload()[0]
+        issue["labels"] = [
+            {"name": "bug"},
+            {"name": "devflow:audit-freshness:unknown"},
+            {"name": "priority:p2"},
+        ]
+
+        states = parse_control_issues([issue])
+
+        self.assertEqual(states["example-repo"].audit_freshness, "UNKNOWN")
+
+    def test_provider_preserves_last_good_state_when_projection_conflicts(self):
+        calls = [0]
+        now = [1000.0]
+
+        def fetcher():
+            calls[0] += 1
+            issue = issue_payload()[0]
+            if calls[0] == 1:
+                return [issue]
+            issue["labels"] = [
+                {"name": "devflow:audit-freshness:current"},
+                {"name": "devflow:audit-freshness:unknown"},
+            ]
+            return [issue]
+
+        provider = DevflowStateProvider(
+            fetcher=fetcher,
+            clock=lambda: now[0],
+            ttl_seconds=120.0,
+            retry_seconds=30.0,
+        )
+        first = provider.snapshot()
+        self.assertEqual(first.repositories["example-repo"].audit_freshness, "CURRENT")
+
+        now[0] += 121.0
+        failed = provider.snapshot()
+
+        self.assertTrue(failed.stale)
+        self.assertIn("conflicting Audit Freshness projection", failed.error)
+        self.assertEqual(failed.repositories["example-repo"].audit_freshness, "CURRENT")
 
     def test_provider_caches_one_public_issue_fetch_until_ttl_expires(self):
         calls = []
