@@ -221,6 +221,18 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(list(states), ["example-repo"])
         self.assertEqual(states["example-repo"].issue_number, 59)
 
+    def test_bootstrap_bot_control_title_must_match_projection_repository_basename(self):
+        issue = {
+            **issue_payload()[0],
+            "title": "[REPO] other-repo",
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        with self.assertRaisesRegex(ValueError, "title|identity|repository"):
+            parse_control_issues([issue], now=1791097200.0)
+
     def test_outsider_forged_projection_does_not_gain_control_trust(self):
         issue = {
             **issue_payload()[0],
