@@ -278,6 +278,20 @@ class DevflowStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "validity window"):
             parse_control_issues([issue], now=1791097200.0)
 
+    def test_bot_control_with_future_generation_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                generated_at="2026-10-05T05:50:00Z",
+                valid_until="2026-10-06T05:50:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "future|not yet"):
+            parse_control_issues([issue], now=1791097200.0)
+
     def test_bot_control_with_duplicate_projection_marker_fails_closed(self):
         block = projection_transport()
         issue = {
