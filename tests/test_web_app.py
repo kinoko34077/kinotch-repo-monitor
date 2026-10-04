@@ -3,10 +3,24 @@ import unittest
 from pathlib import Path
 
 from repo_monitor.config import AppConfig, ConfigStore, RepoEntry
+from repo_monitor.devflow_state import DevflowRepoState, DevflowSnapshot
 from repo_monitor.git_inspector import RepoSnapshot
 from repo_monitor.registry import repo_identity
 from repo_monitor.scan_engine import LocalRepoSnapshot, LocalSnapshot
 from repo_monitor.web_app import RepoMonitorService
+
+
+class _FakeDevflowProvider:
+    def __init__(self, *states: DevflowRepoState):
+        self.current = DevflowSnapshot(
+            {state.repository: state for state in states},
+            1000.0,
+            None,
+            False,
+        )
+
+    def snapshot_nonblocking(self):
+        return self.current
 
 
 class _FakeScanEngine:
@@ -79,6 +93,51 @@ class WebAppServiceTests(unittest.TestCase):
             self.assertEqual([item["status"] for item in state["repositories"]], ["ACTIVE", "COMMITTED"])
             self.assertEqual(state["refresh_ms"], 2000)
             self.assertEqual(state["scan"]["generation"], 1)
+
+    def test_state_matches_devflow_by_exact_github_repository_identity_not_basename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            managed = root / "managed" / "same"
+            unrelated = root / "unrelated" / "same"
+            managed.mkdir(parents=True)
+            unrelated.mkdir(parents=True)
+            store = self.make_store(
+                root,
+                [
+                    RepoEntry("same", str(managed)),
+                    RepoEntry("same", str(unrelated)),
+                ],
+            )
+            managed_snap = RepoSnapshot(path=managed)
+            managed_snap.remote_web_url = "https://github.com/kinoko34077/same"
+            unrelated_snap = RepoSnapshot(path=unrelated)
+            unrelated_snap.remote_web_url = "https://github.com/other/same"
+            workflow = DevflowRepoState(
+                repository="same",
+                repository_full_name="kinoko34077/same",
+                work_status="IMPLEMENTING",
+                repository_state="ACTIVE",
+                active_work="same#1",
+                next_action="continue",
+                issue_number=59,
+                issue_url="https://github.com/kinoko34077/devflow/issues/59",
+                updated_at="2026-10-04T00:00:00Z",
+            )
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=_FakeScanEngine(_snapshot(managed_snap, unrelated_snap)),
+                devflow_provider=_FakeDevflowProvider(workflow),
+            )
+
+            by_path = {item["path"]: item for item in service.state()["repositories"]}
+
+            self.assertIsNotNone(by_path[str(managed)]["devflow"])
+            self.assertEqual(
+                by_path[str(managed)]["devflow"]["repository_full_name"],
+                "kinoko34077/same",
+            )
+            self.assertIsNone(by_path[str(unrelated)]["devflow"])
 
     def test_state_projects_remote_web_url_from_cached_git_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
