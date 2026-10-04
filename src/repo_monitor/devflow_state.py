@@ -160,6 +160,7 @@ def _derived_control_transport_trusted(
     issue: Mapping[str, object],
     body: str,
     parts: Mapping[str, str],
+    repository: str,
     *,
     now: float,
 ) -> bool:
@@ -183,6 +184,9 @@ def _derived_control_transport_trusted(
     projected_repository = str(payload.get("repository") or "").strip()
     if not canonical_repository or projected_repository != canonical_repository:
         raise ValueError("Repository Projection repository identity mismatch")
+    canonical_name = canonical_repository.rsplit("/", 1)[-1].strip()
+    if not canonical_name or canonical_name.casefold() != repository.casefold():
+        raise ValueError("Repository Projection repository identity does not match Control title")
 
     generated_at = _rfc3339_epoch(payload.get("generated_at"), "projection generated_at")
     valid_until = _rfc3339_epoch(payload.get("valid_until"), "projection valid_until")
@@ -228,6 +232,7 @@ def _is_trusted_control_issue(
     issue: Mapping[str, object],
     body: str,
     parts: Mapping[str, str],
+    repository: str,
     *,
     now: float,
 ) -> bool:
@@ -240,6 +245,7 @@ def _is_trusted_control_issue(
         issue,
         body,
         parts,
+        repository,
         now=now,
     )
 
@@ -266,6 +272,7 @@ def parse_control_issues(
             issue,
             body_text,
             parts,
+            repository,
             now=observed_now,
         ):
             continue
