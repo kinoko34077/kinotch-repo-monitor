@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -24,6 +25,7 @@ PROJECTION_MARKER_END = "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
 PROJECTION_SCHEMA_VERSION = "repository-projection-cache.v1"
 PROJECTION_TRUST_SOURCE = "DEVFLOW_SHARED_CONTROL_VERIFIER"
 PROJECTION_BOT_LOGIN = "github-actions[bot]"
+PROJECTION_VALIDITY_SECONDS = 24 * 60 * 60
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -121,6 +123,18 @@ def _rfc3339_epoch(value: object, field: str) -> float:
     return parsed.timestamp()
 
 
+def _canonical_projection_generation_id(payload: Mapping[str, object]) -> str:
+    material = dict(payload)
+    material.pop("generation_id", None)
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _projection_transport_payload(body: str) -> dict[str, object] | None:
     begin_count = body.count(PROJECTION_MARKER_BEGIN)
     end_count = body.count(PROJECTION_MARKER_END)
@@ -174,12 +188,16 @@ def _derived_control_transport_trusted(
     valid_until = _rfc3339_epoch(payload.get("valid_until"), "projection valid_until")
     if generated_at > valid_until:
         raise ValueError("Repository Projection validity window is invalid")
+    if abs((valid_until - generated_at) - PROJECTION_VALIDITY_SECONDS) > 1e-6:
+        raise ValueError("Repository Projection validity window is noncanonical")
     if now > valid_until:
         raise ValueError("Repository Projection trust transport is stale")
 
     generation_id = str(payload.get("generation_id") or "")
     if _SHA256_RE.fullmatch(generation_id) is None:
         raise ValueError("Repository Projection generation_id is invalid")
+    if generation_id != _canonical_projection_generation_id(payload):
+        raise ValueError("Repository Projection generation_id does not match payload")
 
     source = payload.get("source")
     if not isinstance(source, Mapping):
