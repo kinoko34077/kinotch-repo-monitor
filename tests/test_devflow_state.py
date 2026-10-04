@@ -164,6 +164,7 @@ class DevflowStateTests(unittest.TestCase):
 
         self.assertEqual(list(states), ["example-repo"])
         state = states["example-repo"]
+        self.assertEqual(state.repository_full_name, "kinoko34077/example-repo")
         self.assertEqual(state.work_status, "IMPLEMENTING")
         self.assertEqual(state.repository_state, "ACTIVE")
         self.assertEqual(state.audit_sha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -179,6 +180,15 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(state.issue_number, 59)
         self.assertEqual(state.issue_url, "https://github.com/kinoko34077/devflow/issues/59")
         self.assertEqual(state.updated_at, "2026-09-26T03:00:00Z")
+
+    def test_direct_trusted_control_rejects_title_body_repository_identity_mismatch(self):
+        issue = {
+            **issue_payload()[0],
+            "title": "[REPO] other-repo",
+        }
+
+        with self.assertRaisesRegex(ValueError, "repository identity"):
+            parse_control_issues([issue])
 
     def test_parse_control_issues_ignores_untrusted_and_pull_request_items(self):
         trusted = issue_payload()[0]
