@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}-${{ github.event.comment.id || 'issue' }}
+  group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: Create archive write token
         id: archive-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
           private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
@@ -37,7 +37,7 @@ jobs:
           permission-contents: write
 
       - name: Check out archive implementation
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
           ref: main
