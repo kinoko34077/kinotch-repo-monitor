@@ -1,0 +1,113 @@
+name: Archive GitHub edit history
+
+on:
+  issues:
+    types: [edited, closed]
+  issue_comment:
+    types: [edited]
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}-${{ github.event.comment.id || 'issue' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  collect:
+    if: >-
+      ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID != '' &&
+          (github.event_name != 'issue_comment' || github.event.issue.pull_request == null) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Create archive write token
+        id: archive-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+
+      - name: Check out archive implementation
+        uses: actions/checkout@v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-token.outputs.token }}
+          path: history-archive
+          persist-credentials: true
+
+      - name: Collect source edit history
+        shell: bash
+        env:
+          SOURCE_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd history-archive
+          export PYTHONPATH=src
+          export GITHUB_TOKEN="$SOURCE_GITHUB_TOKEN"
+
+          case "${{ github.event_name }}" in
+            issues|issue_comment)
+              python -m history_archive.github_cli \
+                --root . \
+                --event-name "${{ github.event_name }}" \
+                --event "$GITHUB_EVENT_PATH"
+              ;;
+            schedule|workflow_dispatch)
+              python -m history_archive.github_cli \
+                --root . \
+                --tail \
+                --repository "${{ github.repository }}"
+              ;;
+            *)
+              echo "Unsupported event: ${{ github.event_name }}" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Commit archive changes
+        working-directory: history-archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No archive changes."
+            exit 0
+          fi
+
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(archive|tracking)/' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "Unexpected changed paths; refusing archive commit:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 2
+          fi
+
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          git commit -m "archive: collect ${{ github.repository }} edit history"
+
+          for attempt in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+
+            git rebase --abort >/dev/null 2>&1 || true
+
+            if [[ "$attempt" -eq 4 ]]; then
+              echo "Archive push failed after 4 attempts." >&2
+              exit 1
+            fi
+
+            sleep $((attempt * 2))
+          done
