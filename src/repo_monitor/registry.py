@@ -46,16 +46,11 @@ def merge_discovered(config: AppConfig, discovered: list[Path]) -> AppConfig:
             existing.path = str(resolved)
             continue
 
-        same_name = [repo for repo in entries if repo.name.casefold() == resolved.name.casefold()]
-        missing_same_name = [repo for repo in same_name if not Path(repo.path).exists()]
-        if len(same_name) == 1 and len(missing_same_name) == 1:
-            moved = missing_same_name[0]
-            by_identity.pop(repo_identity(moved.path), None)
-            moved.path = str(resolved)
-            moved.name = resolved.name
-            by_identity[key] = moved
-            continue
-
+        # Path identity is durable. A same-basename path is not proof that a
+        # missing repository moved: transferring the old object would also
+        # transfer operator-owned Chat URL / monitored state to an unrelated
+        # clone or fork. Keep both entries until an explicit operator action or
+        # a future stable-identity reconciliation proves the move.
         repo = RepoEntry(name=resolved.name, path=str(resolved))
         entries.append(repo)
         by_identity[key] = repo
