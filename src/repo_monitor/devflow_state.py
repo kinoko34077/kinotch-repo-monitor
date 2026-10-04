@@ -190,6 +190,8 @@ def _derived_control_transport_trusted(
         raise ValueError("Repository Projection validity window is invalid")
     if abs((valid_until - generated_at) - PROJECTION_VALIDITY_SECONDS) > 1e-6:
         raise ValueError("Repository Projection validity window is noncanonical")
+    if now < generated_at:
+        raise ValueError("Repository Projection generation is in the future")
     if now > valid_until:
         raise ValueError("Repository Projection trust transport is stale")
 
