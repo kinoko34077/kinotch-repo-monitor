@@ -226,6 +226,70 @@ class DevflowStateTests(unittest.TestCase):
 
         self.assertEqual(parse_control_issues([issue]), {})
 
+    def test_bot_control_with_stale_projection_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                valid_until="2000-01-01T00:00:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "stale"):
+            parse_control_issues([issue])
+
+    def test_bot_control_with_duplicate_projection_marker_fails_closed(self):
+        block = projection_transport()
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + block + block,
+        }
+
+        with self.assertRaisesRegex(ValueError, "marker pair"):
+            parse_control_issues([issue])
+
+    def test_provider_preserves_last_good_when_derived_projection_stales(self):
+        calls = [0]
+        now = [1791094800.0]
+
+        def fetcher():
+            calls[0] += 1
+            valid_until = (
+                "2099-10-05T05:50:00Z"
+                if calls[0] == 1
+                else "2026-10-04T06:00:00Z"
+            )
+            return [
+                {
+                    **issue_payload()[0],
+                    "author_association": "NONE",
+                    "user": {"login": "github-actions[bot]"},
+                    "body": ISSUE_BODY + projection_transport(
+                        valid_until=valid_until,
+                    ),
+                }
+            ]
+
+        provider = DevflowStateProvider(
+            fetcher=fetcher,
+            clock=lambda: now[0],
+            ttl_seconds=120.0,
+            retry_seconds=30.0,
+        )
+        first = provider.snapshot()
+        self.assertIn("example-repo", first.repositories)
+        self.assertFalse(first.stale)
+
+        now[0] += 121.0
+        failed = provider.snapshot()
+
+        self.assertTrue(failed.stale)
+        self.assertIn("stale", failed.error)
+        self.assertEqual(failed.repositories, first.repositories)
+
     def test_parse_control_issues_rejects_duplicate_trusted_controls(self):
         trusted = issue_payload()[0]
         duplicate = {
