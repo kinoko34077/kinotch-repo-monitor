@@ -57,6 +57,20 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - after a prior successful fetch, a rejected refresh preserves the last successful devflow snapshot and marks it stale through the existing provider failure path.
 - this closes the Issue #27 consumer-side counterpart of devflow #127 without changing the overlay's read-only nature.
 
+
+### Repository Projection Control trust — Issue #46 / PR #48
+
+- PR #48 is accepted on main at `b956d7b6b00f6f75faf806d4285bc4f9e4c75c32`.
+- Direct `OWNER` / `MEMBER` / `COLLABORATOR` Control trust remains unchanged.
+- A `github-actions[bot]` Control may additionally be consumed only when its devflow-owned `DEVFLOW_REPOSITORY_PROJECTION_V1` transport is current, generation-valid, source-current, and carries `VERIFIED / CURRENT / DEVFLOW_SHARED_CONTROL_VERIFIER` Control trust.
+- Repo Monitor does not reimplement Repository Bootstrap provenance.
+- Projection `repository` must match the Control body `## Repository` exactly, and that repository basename must match the title-derived `[REPO] <name>` key before derived trust is granted.
+- generation identity is recomputed from canonical payload material; producer validity is exactly 24 hours; future or expired generations fail closed.
+- outsider markers, bot Controls without the projection, malformed/duplicate markers, noncanonical validity and mismatched generation identity remain rejected.
+- after a prior successful fetch, a stale/rejected derived transport preserves the last successful snapshot only as stale display state.
+- exact-head push/PR Verify `37186561549` / `37186564165` passed; independent Claude Code / Claude Sonnet Formal Review `5404902374` found no blocking issue on reviewed head `471d03eb452b7f396d77d0fb634381f7cdc27cbc`; post-main Verify `37187037471` passed.
+- this change remains read-only and introduces no GitHub Project API dependency, credential handling, monitored-repository mutation, release/deploy/publication, or #40 local remote/rediscovery semantics.
+
 ### Issue #30 maintenance hardening - accepted
 
 PR #33 completed the four deferred P3 follow-ups from Issue #27 without changing its accepted trust-boundary decisions. The squash merge is accepted on `main` at `26500ed383a2bb1b8fde17757980db3692cb9ad9`:
