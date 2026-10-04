@@ -1,3 +1,4 @@
+import hashlib
 import json
 import threading
 import time
@@ -81,19 +82,21 @@ def issue_payload():
 def projection_transport(
     *,
     repository="kinoko34077/example-repo",
-    valid_until="2099-10-05T05:50:00Z",
+    generated_at="2026-10-04T05:50:00Z",
+    valid_until="2026-10-05T05:50:00Z",
     source_status="AVAILABLE",
     source_freshness="CURRENT",
     trust_status="VERIFIED",
     trust_freshness="CURRENT",
     trust_source="DEVFLOW_SHARED_CONTROL_VERIFIER",
+    corrupt_generation=False,
 ):
     payload = {
         "schema_version": "repository-projection-cache.v1",
         "repository": repository,
-        "generated_at": "2026-10-04T05:50:00Z",
+        "generated_at": generated_at,
         "valid_until": valid_until,
-        "generation_id": "sha256:" + ("a" * 64),
+        "generation_id": "",
         "source": {
             "status": source_status,
             "freshness": source_freshness,
@@ -127,6 +130,17 @@ def projection_transport(
             "detail": None,
         },
     }
+    material = dict(payload)
+    material.pop("generation_id")
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    payload["generation_id"] = "sha256:" + hashlib.sha256(encoded).hexdigest()
+    if corrupt_generation:
+        payload["generation_id"] = "sha256:" + ("0" * 64)
     return (
         "\n\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\n"
         + json.dumps(payload, sort_keys=True)
@@ -232,12 +246,37 @@ class DevflowStateTests(unittest.TestCase):
             "author_association": "NONE",
             "user": {"login": "github-actions[bot]"},
             "body": ISSUE_BODY + projection_transport(
-                valid_until="2026-10-04T06:00:00Z",
+                generated_at="2026-10-03T05:50:00Z",
+                valid_until="2026-10-04T05:50:00Z",
             ),
         }
 
         with self.assertRaisesRegex(ValueError, "stale"):
-            parse_control_issues([issue])
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_mismatched_generation_id_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(corrupt_generation=True),
+        }
+
+        with self.assertRaisesRegex(ValueError, "generation_id"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_noncanonical_validity_window_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                valid_until="2026-10-06T05:50:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "validity window"):
+            parse_control_issues([issue], now=1791097200.0)
 
     def test_bot_control_with_duplicate_projection_marker_fails_closed(self):
         block = projection_transport()
@@ -257,10 +296,10 @@ class DevflowStateTests(unittest.TestCase):
 
         def fetcher():
             calls[0] += 1
-            valid_until = (
-                "2099-10-05T05:50:00Z"
+            generated_at, valid_until = (
+                ("2026-10-04T05:50:00Z", "2026-10-05T05:50:00Z")
                 if calls[0] == 1
-                else "2026-10-04T06:00:00Z"
+                else ("2026-10-03T05:50:00Z", "2026-10-04T05:50:00Z")
             )
             return [
                 {
@@ -268,6 +307,7 @@ class DevflowStateTests(unittest.TestCase):
                     "author_association": "NONE",
                     "user": {"login": "github-actions[bot]"},
                     "body": ISSUE_BODY + projection_transport(
+                        generated_at=generated_at,
                         valid_until=valid_until,
                     ),
                 }
