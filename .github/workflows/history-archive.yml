@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}-${{ github.event.comment.id || 'issue' }}
+  group: history-archive-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
 
 permissions:
