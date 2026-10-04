@@ -141,7 +141,7 @@ GitHub Actionsではunit/regression、compile、launcher smoke、cached-state負
 - devflowはcross-repository operational authorityで、runtimeではpublic Control Issueを読取専用表示します。
 - local activityの正本はGit/filesystem観測で、devflow workflow stateとは混同しません。
 - runtimeへmanaged repository一覧は埋め込みません。
-- local basenameとdevflow `[REPO]` 名をcase-insensitiveで対応付ける方式はv0.5でも維持します。
+- devflow overlayは、cached local Git remoteから得た正確なGitHub `owner/repo` とControl本文の `## Repository` が一致する場合だけ対応付けます。basenameだけでは対応付けません。
 
 ## GitHub
 

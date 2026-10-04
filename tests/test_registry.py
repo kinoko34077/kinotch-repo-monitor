@@ -19,19 +19,32 @@ class RegistryTests(unittest.TestCase):
 
             self.assertEqual(second, first)
 
-    def test_discovery_relocates_missing_same_name_repo_without_overwriting_chat_url(self):
+    def test_discovery_does_not_relocate_missing_same_name_repo_without_stable_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             old = root / "old" / "a"
             new = root / "new" / "a"
             new.mkdir(parents=True)
-            cfg = AppConfig(repositories=[RepoEntry("a", str(old), "https://chatgpt.com/c/a")])
+            cfg = AppConfig(
+                repositories=[
+                    RepoEntry(
+                        "a",
+                        str(old),
+                        "https://chatgpt.com/c/a",
+                        monitored=False,
+                    )
+                ]
+            )
 
             merged = merge_discovered(cfg, [new])
 
-            self.assertEqual(len(merged.repositories), 1)
-            self.assertEqual(merged.repositories[0].chat_url, "https://chatgpt.com/c/a")
-            self.assertEqual(Path(merged.repositories[0].path), new.resolve())
+            self.assertEqual(len(merged.repositories), 2)
+            old_entry = next(repo for repo in merged.repositories if Path(repo.path) == old)
+            new_entry = next(repo for repo in merged.repositories if Path(repo.path) == new.resolve())
+            self.assertEqual(old_entry.chat_url, "https://chatgpt.com/c/a")
+            self.assertFalse(old_entry.monitored)
+            self.assertEqual(new_entry.chat_url, "")
+            self.assertTrue(new_entry.monitored)
 
     def test_discovery_keeps_existing_hidden_repository_hidden_and_preserves_chat_url(self):
         with tempfile.TemporaryDirectory() as tmp:

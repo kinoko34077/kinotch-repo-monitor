@@ -58,6 +58,16 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - this closes the Issue #27 consumer-side counterpart of devflow #127 without changing the overlay's read-only nature.
 
 
+### Stable repository identity — Issue #40 / PR #50
+
+- devflow workflow state is associated only when the cached local Git `origin` resolves to an exact GitHub `owner/repo` identity matching the canonical Control `## Repository` value.
+- the `[REPO] <name>` title remains the human/control key, but basename alone no longer grants a local repository the Control projection.
+- a trusted direct Control whose canonical `## Repository` basename contradicts the title fails closed; Controls without a usable canonical `owner/repo` may remain visible to the provider but cannot be attached to a local repository.
+- same-basename local clones/forks with different GitHub remotes remain distinct; an unmanaged or identity-unknown clone receives no canonical devflow overlay.
+- rediscovery no longer treats one missing persisted entry plus one new same-basename path as proof of a move. The old entry and its operator-owned Chat URL / monitored state are retained, while the new path is added as a separate repository for explicit operator reconciliation.
+- local path identity, monitored-repository read-only behavior, loopback binding, devflow trust/freshness rules and user-owned Chat URL storage remain unchanged.
+- TDD RED run `37192272533` established the previous basename-only behavior across canonical Control identity, devflow overlay and rediscovery metadata transfer.
+
 ### Repository Projection Control trust — Issue #46 / PR #48
 
 - PR #48 is accepted on main at `b956d7b6b00f6f75faf806d4285bc4f9e4c75c32`.
@@ -167,7 +177,7 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 - Host / Origin / JSON-only mutation boundary and restrictive CSP.
 - monitored repositories remain read-only; Repo Monitor does not mutate their Git configuration or force-trust ownership.
 - public read-only devflow integration with trusted-author filtering and cache/stale-last-good behavior.
-- basename -> devflow `[REPO]` mapping remains case-insensitive and is not globally unique for arbitrary duplicate basenames/renames.
+- devflow association is fail-closed on exact GitHub `owner/repo` identity; basename-only local association and basename-only rediscovery move inference are not used.
 - remote URLs are normalized locally without contacting the remote host.
 - no direct ChatGPT generation-state detection.
 - no Node/npm runtime, database, permanent background service, or repository mutation.

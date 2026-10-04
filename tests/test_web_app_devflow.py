@@ -16,6 +16,7 @@ class _FakeDevflowProvider:
             repositories={
                 "example-repo": DevflowRepoState(
                     repository="example-repo",
+                    repository_full_name="kinoko34077/example-repo",
                     work_status="IMPLEMENTING",
                     repository_state="ACTIVE",
                     audit_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -79,8 +80,16 @@ class WebAppDevflowTests(unittest.TestCase):
                 store=store,
                 scan_engine=_FakeScanEngine(
                     [
-                        RepoSnapshot(path=managed, dirty=False),
-                        RepoSnapshot(path=unmanaged, dirty=False),
+                        RepoSnapshot(
+                            path=managed,
+                            dirty=False,
+                            remote_web_url="https://github.com/kinoko34077/example-repo",
+                        ),
+                        RepoSnapshot(
+                            path=unmanaged,
+                            dirty=False,
+                            remote_web_url="https://github.com/other/local-only",
+                        ),
                     ]
                 ),
                 devflow_provider=_FakeDevflowProvider(),

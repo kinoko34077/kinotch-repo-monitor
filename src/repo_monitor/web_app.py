@@ -20,6 +20,26 @@ from .status import classify_status
 MAX_GIT_WORKERS = 8
 
 
+def _github_repository_full_name(remote_web_url: str) -> str:
+    try:
+        parsed = urlsplit(str(remote_web_url or "").strip())
+    except ValueError:
+        return ""
+    if parsed.scheme.casefold() not in {"http", "https"}:
+        return ""
+    if (parsed.hostname or "").casefold() != "github.com":
+        return ""
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) != 2:
+        return ""
+    owner, repository = segments
+    if repository.casefold().endswith(".git"):
+        repository = repository[:-4]
+    if not owner or not repository:
+        return ""
+    return f"{owner.casefold()}/{repository.casefold()}"
+
+
 def _default_folder_opener(path: str) -> None:
     if os.name == "nt":
         os.startfile(path)  # type: ignore[attr-defined]
@@ -116,14 +136,24 @@ class RepoMonitorService:
         local = self._scan_engine.snapshot()  # type: ignore[attr-defined]
         observed = {item.key: item.observation for item in local.repositories}
         devflow = self._devflow_snapshot()
-        devflow_by_name = {name.casefold(): value for name, value in devflow.repositories.items()}
+        devflow_by_repository = {
+            state.repository_full_name.casefold(): state
+            for state in devflow.repositories.values()
+            if state.repository_full_name
+        }
         now = self._clock()
         repositories: list[dict[str, object]] = []
 
         for repo in config.repositories:
             key = repo_identity(repo.path)
             snap = observed.get(key)
-            workflow = devflow_by_name.get(repo.name.casefold())
+            workflow = None
+            if snap is not None:
+                remote_identity = _github_repository_full_name(
+                    getattr(snap, "remote_web_url", "")
+                )
+                if remote_identity:
+                    workflow = devflow_by_repository.get(remote_identity)
             if snap is None:
                 repositories.append(
                     {

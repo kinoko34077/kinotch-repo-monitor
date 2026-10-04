@@ -47,10 +47,12 @@ class DevflowRepoState:
     audit_evidence: str = ""
     last_deep_audit_at: str = ""
     audit_freshness: str = ""
+    repository_full_name: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
             "repository": self.repository,
+            "repository_full_name": self.repository_full_name,
             "work_status": self.work_status,
             "repository_state": self.repository_state,
             "active_work": self.active_work,
@@ -92,6 +94,27 @@ def _sections(body: str) -> dict[str, str]:
 
 def _clean_value(value: str) -> str:
     return value.strip().replace("`", "").strip()
+
+
+def _canonical_repository_full_name(
+    parts: Mapping[str, str],
+    repository: str,
+) -> str:
+    value = _clean_value(parts.get("repository", ""))
+    if not value:
+        return ""
+    segments = value.split("/")
+    if (
+        len(segments) != 2
+        or not segments[0].strip()
+        or not segments[1].strip()
+    ):
+        return ""
+    owner = segments[0].strip()
+    name = segments[1].strip()
+    if name.casefold() != repository.casefold():
+        raise ValueError("Repository Control repository identity does not match title")
+    return f"{owner}/{name}"
 
 
 def _audit_freshness_projection(issue: Mapping[str, object]) -> str:
@@ -180,13 +203,10 @@ def _derived_control_transport_trusted(
     if payload.get("schema_version") != PROJECTION_SCHEMA_VERSION:
         raise ValueError("unsupported Repository Projection schema")
 
-    canonical_repository = _clean_value(parts.get("repository", ""))
+    canonical_repository = _canonical_repository_full_name(parts, repository)
     projected_repository = str(payload.get("repository") or "").strip()
     if not canonical_repository or projected_repository != canonical_repository:
         raise ValueError("Repository Projection repository identity mismatch")
-    canonical_name = canonical_repository.rsplit("/", 1)[-1].strip()
-    if not canonical_name or canonical_name.casefold() != repository.casefold():
-        raise ValueError("Repository Projection repository identity does not match Control title")
 
     generated_at = _rfc3339_epoch(payload.get("generated_at"), "projection generated_at")
     valid_until = _rfc3339_epoch(payload.get("valid_until"), "projection valid_until")
@@ -276,6 +296,7 @@ def parse_control_issues(
             now=observed_now,
         ):
             continue
+        repository_full_name = _canonical_repository_full_name(parts, repository)
         folded = repository.casefold()
         if folded in seen_names:
             raise ValueError(
@@ -284,6 +305,7 @@ def parse_control_issues(
             )
         states[repository] = DevflowRepoState(
             repository=repository,
+            repository_full_name=repository_full_name,
             work_status=_clean_value(parts.get("work status", "")),
             repository_state=_clean_value(parts.get("repository state", "")),
             active_work=_clean_value(parts.get("active work", "")),
