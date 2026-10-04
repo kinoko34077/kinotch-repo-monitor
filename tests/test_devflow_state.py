@@ -1,3 +1,4 @@
+import hashlib
 import json
 import threading
 import time
@@ -78,6 +79,75 @@ def issue_payload():
     ]
 
 
+def projection_transport(
+    *,
+    repository="kinoko34077/example-repo",
+    generated_at="2026-10-04T05:50:00Z",
+    valid_until="2026-10-05T05:50:00Z",
+    source_status="AVAILABLE",
+    source_freshness="CURRENT",
+    trust_status="VERIFIED",
+    trust_freshness="CURRENT",
+    trust_source="DEVFLOW_SHARED_CONTROL_VERIFIER",
+    corrupt_generation=False,
+):
+    payload = {
+        "schema_version": "repository-projection-cache.v1",
+        "repository": repository,
+        "generated_at": generated_at,
+        "valid_until": valid_until,
+        "generation_id": "",
+        "source": {
+            "status": source_status,
+            "freshness": source_freshness,
+            "observed_at": "2026-10-04T05:49:00Z",
+            "error": None,
+            "digest": "sha256:" + ("b" * 64),
+        },
+        "coverage": {
+            "status": "COMPLETE",
+            "ambiguous": False,
+            "active_work_evidence": "NO_MACHINE_TASKS_UNDER_COMPLETE_COVERAGE",
+            "can_replace_manual_active_work": False,
+        },
+        "counts": {
+            "open_issues": 0,
+            "machine_records": 0,
+            "machine_tasks": 0,
+            "legacy_hints": 0,
+            "unclassified": 0,
+            "invalid_metadata": 0,
+            "untrusted_metadata": 0,
+        },
+        "type_counts": {"machine": {}, "legacy_hint": {}},
+        "tasks": {"ready": [], "implementing": []},
+        "references": {"newest_open_issue": None, "recently_active_issue": None},
+        "control_trust": {
+            "status": trust_status,
+            "freshness": trust_freshness,
+            "source": trust_source,
+            "observed_at": "2026-10-04T05:49:00Z",
+            "detail": None,
+        },
+    }
+    material = dict(payload)
+    material.pop("generation_id")
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    payload["generation_id"] = "sha256:" + hashlib.sha256(encoded).hexdigest()
+    if corrupt_generation:
+        payload["generation_id"] = "sha256:" + ("0" * 64)
+    return (
+        "\n\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\n"
+        + json.dumps(payload, sort_keys=True)
+        + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+    )
+
+
 class DevflowStateTests(unittest.TestCase):
     def test_parse_control_issues_extracts_repository_workflow_fields(self):
         issues = issue_payload() + [
@@ -137,6 +207,154 @@ class DevflowStateTests(unittest.TestCase):
         states = parse_control_issues([untrusted, unknown, pull_request, trusted])
 
         self.assertEqual(list(states), ["example-repo"])
+
+    def test_bootstrap_bot_control_with_current_verified_projection_is_accepted(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        states = parse_control_issues([issue])
+
+        self.assertEqual(list(states), ["example-repo"])
+        self.assertEqual(states["example-repo"].issue_number, 59)
+
+    def test_bootstrap_bot_control_title_must_match_projection_repository_basename(self):
+        issue = {
+            **issue_payload()[0],
+            "title": "[REPO] other-repo",
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        with self.assertRaisesRegex(ValueError, "title|identity|repository"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_outsider_forged_projection_does_not_gain_control_trust(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "outside-user"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        self.assertEqual(parse_control_issues([issue]), {})
+
+    def test_bot_control_without_projection_remains_rejected(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+        }
+
+        self.assertEqual(parse_control_issues([issue]), {})
+
+    def test_bot_control_with_stale_projection_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                generated_at="2026-10-03T05:50:00Z",
+                valid_until="2026-10-04T05:50:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "stale"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_mismatched_generation_id_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(corrupt_generation=True),
+        }
+
+        with self.assertRaisesRegex(ValueError, "generation_id"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_noncanonical_validity_window_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                valid_until="2026-10-06T05:50:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "validity window"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_future_generation_fails_closed(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(
+                generated_at="2026-10-05T05:50:00Z",
+                valid_until="2026-10-06T05:50:00Z",
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "future|not yet"):
+            parse_control_issues([issue], now=1791097200.0)
+
+    def test_bot_control_with_duplicate_projection_marker_fails_closed(self):
+        block = projection_transport()
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + block + block,
+        }
+
+        with self.assertRaisesRegex(ValueError, "marker pair"):
+            parse_control_issues([issue])
+
+    def test_provider_preserves_last_good_when_derived_projection_stales(self):
+        calls = [0]
+        now = [1791094800.0]
+
+        def fetcher():
+            calls[0] += 1
+            generated_at, valid_until = (
+                ("2026-10-04T05:50:00Z", "2026-10-05T05:50:00Z")
+                if calls[0] == 1
+                else ("2026-10-03T05:50:00Z", "2026-10-04T05:50:00Z")
+            )
+            return [
+                {
+                    **issue_payload()[0],
+                    "author_association": "NONE",
+                    "user": {"login": "github-actions[bot]"},
+                    "body": ISSUE_BODY + projection_transport(
+                        generated_at=generated_at,
+                        valid_until=valid_until,
+                    ),
+                }
+            ]
+
+        provider = DevflowStateProvider(
+            fetcher=fetcher,
+            clock=lambda: now[0],
+            ttl_seconds=120.0,
+            retry_seconds=30.0,
+        )
+        first = provider.snapshot()
+        self.assertIn("example-repo", first.repositories)
+        self.assertFalse(first.stale)
+
+        now[0] += 121.0
+        failed = provider.snapshot()
+
+        self.assertTrue(failed.stale)
+        self.assertIn("stale", failed.error)
+        self.assertEqual(failed.repositories, first.repositories)
 
     def test_parse_control_issues_rejects_duplicate_trusted_controls(self):
         trusted = issue_payload()[0]
