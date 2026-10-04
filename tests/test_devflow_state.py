@@ -78,6 +78,62 @@ def issue_payload():
     ]
 
 
+def projection_transport(
+    *,
+    repository="kinoko34077/example-repo",
+    valid_until="2099-10-05T05:50:00Z",
+    source_status="AVAILABLE",
+    source_freshness="CURRENT",
+    trust_status="VERIFIED",
+    trust_freshness="CURRENT",
+    trust_source="DEVFLOW_SHARED_CONTROL_VERIFIER",
+):
+    payload = {
+        "schema_version": "repository-projection-cache.v1",
+        "repository": repository,
+        "generated_at": "2026-10-04T05:50:00Z",
+        "valid_until": valid_until,
+        "generation_id": "sha256:" + ("a" * 64),
+        "source": {
+            "status": source_status,
+            "freshness": source_freshness,
+            "observed_at": "2026-10-04T05:49:00Z",
+            "error": None,
+            "digest": "sha256:" + ("b" * 64),
+        },
+        "coverage": {
+            "status": "COMPLETE",
+            "ambiguous": False,
+            "active_work_evidence": "NO_MACHINE_TASKS_UNDER_COMPLETE_COVERAGE",
+            "can_replace_manual_active_work": False,
+        },
+        "counts": {
+            "open_issues": 0,
+            "machine_records": 0,
+            "machine_tasks": 0,
+            "legacy_hints": 0,
+            "unclassified": 0,
+            "invalid_metadata": 0,
+            "untrusted_metadata": 0,
+        },
+        "type_counts": {"machine": {}, "legacy_hint": {}},
+        "tasks": {"ready": [], "implementing": []},
+        "references": {"newest_open_issue": None, "recently_active_issue": None},
+        "control_trust": {
+            "status": trust_status,
+            "freshness": trust_freshness,
+            "source": trust_source,
+            "observed_at": "2026-10-04T05:49:00Z",
+            "detail": None,
+        },
+    }
+    return (
+        "\n\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\n"
+        + json.dumps(payload, sort_keys=True)
+        + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+    )
+
+
 class DevflowStateTests(unittest.TestCase):
     def test_parse_control_issues_extracts_repository_workflow_fields(self):
         issues = issue_payload() + [
@@ -137,6 +193,38 @@ class DevflowStateTests(unittest.TestCase):
         states = parse_control_issues([untrusted, unknown, pull_request, trusted])
 
         self.assertEqual(list(states), ["example-repo"])
+
+    def test_bootstrap_bot_control_with_current_verified_projection_is_accepted(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        states = parse_control_issues([issue])
+
+        self.assertEqual(list(states), ["example-repo"])
+        self.assertEqual(states["example-repo"].issue_number, 59)
+
+    def test_outsider_forged_projection_does_not_gain_control_trust(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "outside-user"},
+            "body": ISSUE_BODY + projection_transport(),
+        }
+
+        self.assertEqual(parse_control_issues([issue]), {})
+
+    def test_bot_control_without_projection_remains_rejected(self):
+        issue = {
+            **issue_payload()[0],
+            "author_association": "NONE",
+            "user": {"login": "github-actions[bot]"},
+        }
+
+        self.assertEqual(parse_control_issues([issue]), {})
 
     def test_parse_control_issues_rejects_duplicate_trusted_controls(self):
         trusted = issue_payload()[0]
