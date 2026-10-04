@@ -232,7 +232,7 @@ class DevflowStateTests(unittest.TestCase):
             "author_association": "NONE",
             "user": {"login": "github-actions[bot]"},
             "body": ISSUE_BODY + projection_transport(
-                valid_until="2000-01-01T00:00:00Z",
+                valid_until="2026-10-04T06:00:00Z",
             ),
         }
 
