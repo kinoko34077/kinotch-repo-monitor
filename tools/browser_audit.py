@@ -650,6 +650,63 @@ class BrowserAudit:
                 error=str(exc),
             )]
         checks: list[CheckResult] = []
+        portfolio_state = self.devtools.evaluate(
+            r"""(() => {
+              const section = document.getElementById('human-portfolio-section');
+              if (!section) return {available: false};
+              const cards = [...section.querySelectorAll('.human-portfolio-card')];
+              const entries = [...section.querySelectorAll('.human-portfolio-entry')];
+              return {
+                available: true,
+                card_count: cards.length,
+                entry_count: entries.length,
+                link_count: section.querySelectorAll('a.human-portfolio-task').length,
+                button_count: section.querySelectorAll('button').length,
+                dispositions: entries.map((item) => item.dataset.disposition || ''),
+                transport_statuses: cards.map((item) => item.dataset.transportStatus || '')
+              };
+            })()"""
+        )
+        portfolio_state = portfolio_state if isinstance(portfolio_state, dict) else {"available": False}
+        portfolio_has_data = (
+            portfolio_state.get("card_count", 0) >= 1
+            and portfolio_state.get("entry_count", 0) >= 1
+        )
+        portfolio_safe = (
+            portfolio_state.get("available")
+            and portfolio_state.get("button_count", 0) == 0
+            and (
+                portfolio_state.get("link_count", 0) >= 1
+                if portfolio_has_data
+                else True
+            )
+        )
+        if self.mode == "demo":
+            portfolio_ok = (
+                portfolio_safe
+                and portfolio_state.get("entry_count", 0) >= 2
+                and "NEEDS_REVIEWER" in portfolio_state.get("dispositions", [])
+                and "CURRENT" in portfolio_state.get("transport_statuses", [])
+            )
+            portfolio_status = "PASS" if portfolio_ok else "FAIL"
+            portfolio_error = None if portfolio_ok else "deterministic Human Portfolio queue did not render as required"
+        elif portfolio_safe and portfolio_has_data:
+            portfolio_status = "PASS"
+            portfolio_error = None
+        elif portfolio_safe:
+            portfolio_status = "WARN"
+            portfolio_error = "Human Portfolio transport is present but no live cached queue entries are currently published"
+        else:
+            portfolio_status = "FAIL"
+            portfolio_error = "Human Portfolio section is missing or exposes an unexpected mutation control"
+        checks.append(CheckResult(
+            name="interaction.human_portfolio_render",
+            status=portfolio_status,
+            measured=portfolio_state,
+            rule="render producer-owned Human Portfolio entries as a separate read-only queue with canonical drill-down links",
+            error=portfolio_error,
+        ))
+
         self.devtools.evaluate("window.__auditCard = document.querySelector('.repo-card'); true")
         time.sleep(self.refresh_wait)
         stable = bool(self.devtools.evaluate("window.__auditCard === document.querySelector('.repo-card')"))

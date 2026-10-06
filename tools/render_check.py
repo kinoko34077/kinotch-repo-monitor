@@ -24,7 +24,64 @@ class DemoService:
         return {
             "refresh_ms": 2000,
             "updated_at": 1_790_351_000.0,
-            "devflow": {"fetched_at": 1_790_351_000.0, "stale": False, "error": None},
+            "devflow": {
+                "fetched_at": 1_790_351_000.0,
+                "stale": False,
+                "error": None,
+                "human_portfolios": [
+                    {
+                        "repository": "kinoko34077/demo-active",
+                        "observed_at": "2026-10-04T05:49:00Z",
+                        "generated_at": "2026-10-04T05:50:00Z",
+                        "valid_until": "2026-10-05T05:50:00Z",
+                        "generation_id": "sha256:" + ("a" * 64),
+                        "complete": True,
+                        "transport_status": "CURRENT",
+                        "current": True,
+                        "repository_source": {
+                            "status": "AVAILABLE",
+                            "freshness": "CURRENT",
+                            "error": None,
+                        },
+                        "reconciliation_source": {
+                            "status": "AVAILABLE",
+                            "trust": "VERIFIED",
+                            "control_issue_number": 59,
+                            "control_url": "https://github.com/kinoko34077/devflow/issues/59",
+                            "error": None,
+                            "task_errors": [],
+                        },
+                        "entries": [
+                            {
+                                "repository": "kinoko34077/demo-active",
+                                "task_ref": "kinoko34077/demo-active#12",
+                                "entry_ref": "https://github.com/kinoko34077/demo-active/issues/12",
+                                "disposition": "IMPLEMENTING",
+                                "role": "TASK",
+                                "source_kind": "REPOSITORY_PROJECTION",
+                                "observed_at": "2026-10-04T05:49:00Z",
+                                "work_status": "IMPLEMENTING",
+                                "publication_id": None,
+                                "evidence_freshness": "CURRENT",
+                                "evidence_trust": "VERIFIED",
+                            },
+                            {
+                                "repository": "kinoko34077/demo-active",
+                                "task_ref": "kinoko34077/demo-active#13",
+                                "entry_ref": "https://github.com/kinoko34077/demo-active/issues/13",
+                                "disposition": "NEEDS_REVIEWER",
+                                "role": "reviewer",
+                                "source_kind": "RECONCILIATION",
+                                "observed_at": "2026-10-04T05:49:00Z",
+                                "work_status": None,
+                                "publication_id": "sha256:" + ("b" * 64),
+                                "evidence_freshness": "CURRENT",
+                                "evidence_trust": "VERIFIED",
+                            },
+                        ],
+                    }
+                ],
+            },
             "repositories": [
                 {
                     "key": r"c:\repos\demo-active",
@@ -189,8 +246,13 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("devflow workflow UI contract was not present through localhost HTTP")
         if "workflow-next-preview" not in js or "remote_web_url" not in js:
             raise RuntimeError("compact workflow / remote repository UI contract was not present")
+        if "human-portfolio-list" not in html or "HUMAN_DISPOSITION_LABELS" not in js:
+            raise RuntimeError("Human Portfolio UI contract was not present through localhost HTTP")
         if len(state.get("repositories", [])) != 2:
             raise RuntimeError("demo state was not available through localhost HTTP")
+        portfolios = state.get("devflow", {}).get("human_portfolios", [])
+        if len(portfolios) != 1 or len(portfolios[0].get("entries", [])) != 2:
+            raise RuntimeError("Human Portfolio demo state was not available through localhost HTTP")
 
         browsers = browser_candidates()
         if browsers:
@@ -201,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("no supported Edge/Chrome/Chromium executable found")
         else:
             print("render=http-only browser=not-found")
-        print("localhost-assets=ok api-state=ok devflow-ui=ok compact-ui=ok remote-link=ok")
+        print("localhost-assets=ok api-state=ok devflow-ui=ok human-portfolio-ui=ok compact-ui=ok remote-link=ok")
         return 0
     finally:
         server.shutdown()
