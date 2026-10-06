@@ -3,7 +3,7 @@
   "project": {
     "name": "kinotch-repo-monitor",
     "type": "local-web",
-    "description": "Localhost Web UI for cached local Git repository activity, read-only devflow workflow state, and direct ChatGPT/repository navigation."
+    "description": "Localhost Web UI for cached local Git repository activity and read-only devflow workflow state, plus a separate public read-only GitHub Pages dashboard derived only from public devflow data."
   },
   "profile": "local-web",
   "profiles": [
@@ -44,8 +44,10 @@
   "notes": [
     "Uses a loopback-only local HTTP server and responsive Vanilla HTML/CSS/JS UI.",
     "Local activity state is derived only from local Git/filesystem observation.",
-    "v0.5 serves browser state from a cached complete snapshot; one background scan engine owns Git scan generations with an 8-worker bound.",
+    "v0.5 serves localhost browser state from a cached complete snapshot; one background scan engine owns Git scan generations with an 8-worker bound.",
     "Public devflow Repository Control Issues are read as a separate cached workflow-state overlay; this is not direct ChatGPT execution-state detection.",
+    "A separate GitHub Pages static dashboard publishes only public devflow workflow/audit/Human Portfolio data and excludes local paths, Chat URLs, local Git activity, credentials and mutation controls.",
+    "GitHub Pages deployment is owned by the pinned .github/workflows/pages.yml workflow; there is no local deploy command.",
     "RDC is not required for build, verification, or operation."
   ]
 }
