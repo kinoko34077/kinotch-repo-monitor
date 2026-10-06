@@ -8,6 +8,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from repo_monitor.devflow_state import DevflowStateProvider, _fetch_public_issues, parse_control_issues
+from tests.test_human_portfolio import marker as human_portfolio_marker, payload as human_portfolio_payload
 
 
 ISSUE_BODY = """## Repository
@@ -146,6 +147,45 @@ def projection_transport(
         + json.dumps(payload, sort_keys=True)
         + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
     )
+
+
+class HumanPortfolioControlIntegrationTests(unittest.TestCase):
+    def test_valid_human_portfolio_marker_is_attached_to_control_state(self):
+        issue = issue_payload()[0]
+        issue["body"] = ISSUE_BODY + "\n" + human_portfolio_marker()
+
+        states = parse_control_issues([issue], now=1791249000.0)
+
+        portfolio = states["example-repo"].human_portfolio
+        self.assertIsNotNone(portfolio)
+        self.assertEqual(portfolio.cache_freshness, "CURRENT")
+        self.assertEqual(
+            [entry["task_ref"] for entry in portfolio.entries],
+            [
+                "kinoko34077/example-repo#32",
+                "kinoko34077/example-repo#33",
+            ],
+        )
+
+    def test_missing_human_portfolio_marker_keeps_existing_control_behavior(self):
+        states = parse_control_issues(issue_payload(), now=1791249000.0)
+
+        self.assertEqual(states["example-repo"].work_status, "IMPLEMENTING")
+        self.assertIsNone(states["example-repo"].human_portfolio)
+
+    def test_invalid_human_portfolio_marker_isolated_from_control_overlay(self):
+        issue = issue_payload()[0]
+        value = human_portfolio_payload()
+        value["complete"] = False
+        issue["body"] = ISSUE_BODY + "\n" + human_portfolio_marker(value)
+
+        states = parse_control_issues([issue], now=1791249000.0)
+
+        state = states["example-repo"]
+        self.assertEqual(state.work_status, "IMPLEMENTING")
+        self.assertIsNotNone(state.human_portfolio)
+        self.assertEqual(state.human_portfolio.cache_freshness, "INVALID")
+        self.assertIn("generation_id", state.human_portfolio.error)
 
 
 class DevflowStateTests(unittest.TestCase):
