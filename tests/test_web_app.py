@@ -4,6 +4,7 @@ from pathlib import Path
 
 from repo_monitor.config import AppConfig, ConfigStore, RepoEntry
 from repo_monitor.devflow_state import DevflowRepoState, DevflowSnapshot
+from repo_monitor.human_portfolio import HumanPortfolioState
 from repo_monitor.git_inspector import RepoSnapshot
 from repo_monitor.registry import repo_identity
 from repo_monitor.scan_engine import LocalRepoSnapshot, LocalSnapshot
@@ -93,6 +94,107 @@ class WebAppServiceTests(unittest.TestCase):
             self.assertEqual([item["status"] for item in state["repositories"]], ["ACTIVE", "COMMITTED"])
             self.assertEqual(state["refresh_ms"], 2000)
             self.assertEqual(state["scan"]["generation"], 1)
+
+    def test_state_exposes_global_human_portfolio_separate_from_local_repositories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self.make_store(root, [])
+            portfolio = HumanPortfolioState(
+                repository="kinoko34077/example-repo",
+                cache_freshness="CURRENT",
+                complete=True,
+                observed_at="2026-10-06T01:00:00Z",
+                generated_at="2026-10-06T01:01:00Z",
+                valid_until="2026-10-07T01:01:00Z",
+                generation_id="sha256:" + ("a" * 64),
+                repository_source={
+                    "status": "AVAILABLE",
+                    "freshness": "CURRENT",
+                    "error": None,
+                },
+                reconciliation_source={
+                    "status": "AVAILABLE",
+                    "trust": "VERIFIED",
+                    "control_issue_number": 59,
+                    "control_url": "https://github.com/kinoko34077/devflow/issues/59",
+                    "error": None,
+                    "task_errors": [],
+                },
+                entries=(
+                    {
+                        "repository": "kinoko34077/example-repo",
+                        "task_ref": "kinoko34077/example-repo#32",
+                        "entry_ref": "https://github.com/kinoko34077/example-repo/issues/32",
+                        "disposition": "NEEDS_REVIEWER",
+                        "role": "reviewer",
+                        "source_kind": "RECONCILIATION",
+                        "observed_at": "2026-10-06T01:00:00Z",
+                        "work_status": None,
+                        "publication_id": "sha256:" + ("b" * 64),
+                        "evidence_freshness": "CURRENT",
+                        "evidence_trust": "VERIFIED",
+                    },
+                ),
+            )
+            with_portfolio = DevflowRepoState(
+                repository="example-repo",
+                repository_full_name="kinoko34077/example-repo",
+                work_status="IMPLEMENTING",
+                repository_state="ACTIVE",
+                active_work="example-repo#32",
+                next_action="review",
+                issue_number=59,
+                issue_url="https://github.com/kinoko34077/devflow/issues/59",
+                updated_at="2026-10-06T01:00:00Z",
+                human_portfolio=portfolio,
+            )
+            missing = DevflowRepoState(
+                repository="other",
+                repository_full_name="kinoko34077/other",
+                work_status="WAIT",
+                repository_state="ACTIVE",
+                active_work="",
+                next_action="",
+                issue_number=60,
+                issue_url="https://github.com/kinoko34077/devflow/issues/60",
+                updated_at="2026-10-06T01:00:00Z",
+            )
+            provider = _FakeDevflowProvider(with_portfolio, missing)
+            provider.current = DevflowSnapshot(
+                provider.current.repositories,
+                1000.0,
+                "provider retry pending",
+                True,
+            )
+            service = RepoMonitorService(
+                store=store,
+                discoverer=lambda _roots: [],
+                scan_engine=_FakeScanEngine(),
+                devflow_provider=provider,
+            )
+
+            state = service.state()
+            human = state["human_portfolio"]
+
+            self.assertEqual(state["repositories"], [])
+            self.assertTrue(human["provider_stale"])
+            self.assertEqual(human["provider_error"], "provider retry pending")
+            self.assertEqual(human["missing_source_count"], 1)
+            self.assertEqual(len(human["sources"]), 1)
+            self.assertEqual(
+                human["sources"][0]["repository"],
+                "kinoko34077/example-repo",
+            )
+            self.assertEqual(human["sources"][0]["cache_freshness"], "CURRENT")
+            self.assertEqual(len(human["entries"]), 1)
+            entry = human["entries"][0]
+            self.assertEqual(entry["disposition"], "NEEDS_REVIEWER")
+            self.assertEqual(entry["cache_freshness"], "CURRENT")
+            self.assertTrue(entry["cache_complete"])
+            self.assertEqual(
+                entry["entry_ref"],
+                "https://github.com/kinoko34077/example-repo/issues/32",
+            )
 
     def test_state_matches_devflow_by_exact_github_repository_identity_not_basename(self):
         with tempfile.TemporaryDirectory() as tmp:
