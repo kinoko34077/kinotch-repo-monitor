@@ -118,6 +118,56 @@ class RepoMonitorService:
         except Exception as exc:
             return DevflowSnapshot({}, None, str(exc) or exc.__class__.__name__, True)
 
+    @staticmethod
+    def _human_portfolio_view(devflow: DevflowSnapshot) -> dict[str, object]:
+        sources: list[dict[str, object]] = []
+        entries: list[dict[str, object]] = []
+        missing_source_count = 0
+
+        states = sorted(
+            devflow.repositories.values(),
+            key=lambda state: (
+                state.repository_full_name.casefold(),
+                state.repository.casefold(),
+            ),
+        )
+        for state in states:
+            portfolio = state.human_portfolio
+            if portfolio is None:
+                missing_source_count += 1
+                continue
+
+            sources.append(portfolio.source_dict())
+            for source_entry in portfolio.entries:
+                entry = dict(source_entry)
+                entry.update(
+                    {
+                        "cache_freshness": portfolio.cache_freshness,
+                        "cache_complete": portfolio.complete,
+                        "cache_generated_at": portfolio.generated_at,
+                        "cache_valid_until": portfolio.valid_until,
+                    }
+                )
+                entries.append(entry)
+
+        entries.sort(
+            key=lambda entry: (
+                str(entry.get("repository") or "").casefold(),
+                str(entry.get("task_ref") or "").casefold(),
+                str(entry.get("source_kind") or ""),
+                str(entry.get("role") or ""),
+                str(entry.get("publication_id") or ""),
+            )
+        )
+
+        return {
+            "provider_stale": devflow.stale,
+            "provider_error": devflow.error,
+            "missing_source_count": missing_source_count,
+            "sources": sources,
+            "entries": entries,
+        }
+
     def state(self) -> dict[str, object]:
         with self._lock:
             config = AppConfig(
@@ -228,6 +278,7 @@ class RepoMonitorService:
                 "stale": devflow.stale,
                 "error": devflow.error,
             },
+            "human_portfolio": self._human_portfolio_view(devflow),
             "repositories": repositories,
         }
 
