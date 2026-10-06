@@ -95,6 +95,18 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Search/filtering must not mutate persistent state.
 - Repository data is inserted with text/property DOM APIs, never unsanitized `innerHTML`.
 
+### Public GitHub Pages surface
+
+- GitHub Pages is a separate public, read-only static surface. It does not change or expose the loopback-only localhost runtime.
+- The Pages build must derive its state only from public devflow Repository Control data through the repository's existing trusted devflow parser/validation path.
+- The public snapshot schema is `repo-monitor-pages.v1` and may expose repository workflow/audit projection plus Human Portfolio data only.
+- The Pages snapshot must not contain local filesystem paths, ChatGPT URLs, local Git dirty/ahead/behind/activity state, local configuration, credentials, sessions, or mutation controls.
+- If the devflow source read fails or no successful source fetch timestamp exists, the Pages builder must fail instead of publishing a new snapshot.
+- Pages JavaScript is render/filter/navigation only. It must not contain authentication/token handling, write-back endpoints, POST mutation paths, or reimplement devflow trust classification.
+- Dynamic repository/task links must be restricted to HTTPS GitHub navigation and inserted through safe DOM property/text APIs rather than unsanitized HTML.
+- The Pages deployment workflow must use immutable-SHA-pinned Actions. Build requires only repository content read permission; `pages: write` and `id-token: write` are restricted to the deployment job.
+- The generated static artifact contains the public HTML/CSS/JS, `state.json`, and `.nojekyll`.
+
 ## Local HTTP/API surface
 
 - `GET /`: dashboard HTML.
@@ -161,4 +173,4 @@ Unknown repositories return 404. Invalid JSON/action data returns 400. Mutation 
 - GitHub Project synchronization.
 - Mutating monitored repositories or their Git configuration.
 - Database/background service.
-- Public/LAN hosting or multi-user authentication.
+- Public/LAN exposure of the localhost runtime or multi-user authentication. The separately specified read-only GitHub Pages surface is allowed.
