@@ -10,6 +10,14 @@ from datetime import datetime
 from typing import Callable, Iterable, Mapping
 from urllib.request import Request, urlopen
 
+from .human_portfolio import (
+    HUMAN_PORTFOLIO_MARKER_BEGIN,
+    HUMAN_PORTFOLIO_MARKER_END,
+    HumanPortfolioState,
+    invalid_human_portfolio_state,
+    parse_human_portfolio_transport,
+)
+
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
 CONTROL_PREFIX = "[REPO] "
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
@@ -48,6 +56,7 @@ class DevflowRepoState:
     last_deep_audit_at: str = ""
     audit_freshness: str = ""
     repository_full_name: str = ""
+    human_portfolio: HumanPortfolioState | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -270,6 +279,38 @@ def _is_trusted_control_issue(
     )
 
 
+def _human_portfolio_state(
+    body: str,
+    repository_full_name: str,
+    repository: str,
+    *,
+    now: float,
+) -> HumanPortfolioState | None:
+    has_marker = (
+        HUMAN_PORTFOLIO_MARKER_BEGIN in body
+        or HUMAN_PORTFOLIO_MARKER_END in body
+    )
+    if not has_marker:
+        return None
+    identity = repository_full_name or repository
+    if not repository_full_name:
+        return invalid_human_portfolio_state(
+            identity,
+            "Human Portfolio requires canonical Repository Control identity",
+        )
+    try:
+        return parse_human_portfolio_transport(
+            body,
+            repository_full_name,
+            now=now,
+        )
+    except ValueError as exc:
+        return invalid_human_portfolio_state(
+            repository_full_name,
+            str(exc),
+        )
+
+
 def parse_control_issues(
     issues: Iterable[Mapping[str, object]],
     *,
@@ -297,6 +338,12 @@ def parse_control_issues(
         ):
             continue
         repository_full_name = _canonical_repository_full_name(parts, repository)
+        human_portfolio = _human_portfolio_state(
+            body_text,
+            repository_full_name,
+            repository,
+            now=observed_now,
+        )
         folded = repository.casefold()
         if folded in seen_names:
             raise ValueError(
@@ -321,6 +368,7 @@ def parse_control_issues(
             audit_evidence=_clean_value(parts.get("audit evidence", "")),
             last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
             audit_freshness=_audit_freshness_projection(issue),
+            human_portfolio=human_portfolio,
         )
         seen_names[folded] = str(issue.get("number") or 0)
     return states
