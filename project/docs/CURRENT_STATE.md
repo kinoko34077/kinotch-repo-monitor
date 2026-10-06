@@ -81,6 +81,22 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - exact-head push/PR Verify `37186561549` / `37186564165` passed; independent Claude Code / Claude Sonnet Formal Review `5404902374` found no blocking issue on reviewed head `471d03eb452b7f396d77d0fb634381f7cdc27cbc`; post-main Verify `37187037471` passed.
 - this change remains read-only and introduces no GitHub Project API dependency, credential handling, monitored-repository mutation, release/deploy/publication, or #40 local remote/rediscovery semantics.
 
+### Human Portfolio development queue — Issue #32 / PR #52
+
+- PR #52 is accepted on main at `cf4f94c2bc34813103bca45c599e30b3045a90e5`.
+- Repo Monitor consumes the accepted devflow-owned `DEVFLOW_HUMAN_PORTFOLIO_V1` / `human-portfolio-cache.v1` marker from the existing cached public Control fetch; no MCP client/runtime or second task store is introduced.
+- The consumer validates exact schema/repository/task/Issue-link identity, generation digest, canonical 24-hour validity, bounded entry/task-error counts, source/trust state and reconciliation publication identity before exposing the queue.
+- Producer-owned dispositions are preserved without local workflow reclassification; multiple task/workstream entries for one repository remain separate.
+- `/api/state.devflow.human_portfolios` exposes the queue as a separate evidence dimension from local Git status and the existing repository workflow overlay.
+- The browser renders a separate read-only `Development Queue`; canonical task links are navigation-only and the queue has no GitHub/devflow mutation controls.
+- `CURRENT / STALE / INCOMPLETE / INVALID / UNAVAILABLE / UNKNOWN` transport state is explicit; non-current data is never presented as definitely current.
+- Malformed/tampered refreshes preserve the previous successful provider snapshot as stale; absence of the Human Portfolio marker yields an empty queue without breaking the existing devflow overlay.
+- unchanged Human Portfolio payloads retain task-entry DOM identity across routine refresh, and the queue list is intentionally not an `aria-live` region.
+- exact-head push and PR Verify `37402328320` / `37402332252` passed on reviewed head `88e78f9d7c7dbddeb6809747600d16de95749c27`; same-system Formal Review `5422974743` found no blocking findings; post-main Verify `37402525958` passed.
+- deterministic CDP verification recorded `interaction.human_portfolio_render=PASS`, `interaction.human_portfolio_identity=PASS`, and 1440px/360px geometry PASS. Actual assistive-technology speech remains the existing unverified accessibility boundary.
+- At H4 acceptance-time live verification, no Human Portfolio cache marker had yet been projected into the live Controls, so the live queue was empty; the consumer path itself is covered by deterministic entry-bearing browser fixtures and remains read-only.
+- #35 credential configuration + live archive-listener E2E remains a separate Human/security gate and was not crossed by #32.
+
 ### Issue #30 maintenance hardening - accepted
 
 PR #33 completed the four deferred P3 follow-ups from Issue #27 without changing its accepted trust-boundary decisions. The squash merge is accepted on `main` at `26500ed383a2bb1b8fde17757980db3692cb9ad9`:
