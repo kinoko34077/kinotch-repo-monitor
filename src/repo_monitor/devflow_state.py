@@ -5,7 +5,7 @@ import json
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, Mapping
 from urllib.request import Request, urlopen
@@ -26,7 +26,42 @@ PROJECTION_SCHEMA_VERSION = "repository-projection-cache.v1"
 PROJECTION_TRUST_SOURCE = "DEVFLOW_SHARED_CONTROL_VERIFIER"
 PROJECTION_BOT_LOGIN = "github-actions[bot]"
 PROJECTION_VALIDITY_SECONDS = 24 * 60 * 60
+HUMAN_PORTFOLIO_MARKER_BEGIN = "<!-- DEVFLOW_HUMAN_PORTFOLIO_V1_BEGIN -->"
+HUMAN_PORTFOLIO_MARKER_END = "<!-- DEVFLOW_HUMAN_PORTFOLIO_V1_END -->"
+HUMAN_PORTFOLIO_SCHEMA_VERSION = "human-portfolio-cache.v1"
+HUMAN_PORTFOLIO_VALIDITY_SECONDS = 24 * 60 * 60
+HUMAN_PORTFOLIO_MAX_ENTRIES = 200
+HUMAN_PORTFOLIO_MAX_TASK_ERRORS = 100
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_TASK_REF_RE = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
+_ENTRY_REF_RE = re.compile(
+    r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)$"
+)
+_HUMAN_TOP_FIELDS = frozenset(
+    {
+        "schema_version", "repository", "observed_at", "generated_at",
+        "valid_until", "generation_id", "complete", "repository_source",
+        "reconciliation_source", "entries",
+    }
+)
+_HUMAN_REPOSITORY_SOURCE_FIELDS = frozenset({"status", "freshness", "error"})
+_HUMAN_RECONCILIATION_SOURCE_FIELDS = frozenset(
+    {"status", "trust", "control_issue_number", "control_url", "error", "task_errors"}
+)
+_HUMAN_TASK_ERROR_FIELDS = frozenset({"task_ref", "error"})
+_HUMAN_ENTRY_FIELDS = frozenset(
+    {
+        "repository", "task_ref", "entry_ref", "disposition", "role",
+        "source_kind", "observed_at", "work_status", "publication_id",
+        "evidence_freshness", "evidence_trust",
+    }
+)
+_HUMAN_DISPOSITIONS = frozenset(
+    {"READY", "IMPLEMENTING", "NEEDS_HUMAN", "WAIT_EXTERNAL", "NEEDS_EVIDENCE", "NEEDS_REVIEWER", "NEEDS_RECOVERY"}
+)
+_HUMAN_SOURCE_KINDS = frozenset({"REPOSITORY_PROJECTION", "RECONCILIATION"})
+_HUMAN_EVIDENCE_FRESHNESS = frozenset({"CURRENT", "STALE", "UNKNOWN"})
+_HUMAN_EVIDENCE_TRUST = frozenset({"VERIFIED", "UNTRUSTED", "UNKNOWN"})
 
 
 @dataclass(frozen=True)
@@ -72,11 +107,82 @@ class DevflowRepoState:
 
 
 @dataclass(frozen=True)
+class HumanPortfolioEntry:
+    repository: str
+    task_ref: str
+    entry_ref: str | None
+    disposition: str
+    role: str
+    source_kind: str
+    observed_at: str
+    work_status: str | None
+    publication_id: str | None
+    evidence_freshness: str
+    evidence_trust: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "repository": self.repository,
+            "task_ref": self.task_ref,
+            "entry_ref": self.entry_ref,
+            "disposition": self.disposition,
+            "role": self.role,
+            "source_kind": self.source_kind,
+            "observed_at": self.observed_at,
+            "work_status": self.work_status,
+            "publication_id": self.publication_id,
+            "evidence_freshness": self.evidence_freshness,
+            "evidence_trust": self.evidence_trust,
+        }
+
+
+@dataclass(frozen=True)
+class HumanPortfolioState:
+    repository: str
+    observed_at: str
+    generated_at: str
+    valid_until: str
+    generation_id: str
+    complete: bool
+    transport_status: str
+    repository_source: dict[str, object]
+    reconciliation_source: dict[str, object]
+    entries: tuple[HumanPortfolioEntry, ...]
+
+    @property
+    def current(self) -> bool:
+        return self.transport_status == "CURRENT"
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "repository": self.repository,
+            "observed_at": self.observed_at,
+            "generated_at": self.generated_at,
+            "valid_until": self.valid_until,
+            "generation_id": self.generation_id,
+            "complete": self.complete,
+            "transport_status": self.transport_status,
+            "current": self.current,
+            "repository_source": dict(self.repository_source),
+            "reconciliation_source": {
+                **self.reconciliation_source,
+                "task_errors": [
+                    dict(item)
+                    for item in self.reconciliation_source.get("task_errors", [])
+                    if isinstance(item, Mapping)
+                ],
+            },
+            "entries": [entry.as_dict() for entry in self.entries],
+        }
+
+
+@dataclass(frozen=True)
 class DevflowSnapshot:
     repositories: dict[str, DevflowRepoState]
     fetched_at: float | None
     error: str | None = None
     stale: bool = False
+    human_portfolios: dict[str, HumanPortfolioState] = field(default_factory=dict)
 
 
 _SECTION_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
