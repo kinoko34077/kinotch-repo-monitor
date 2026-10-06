@@ -21,8 +21,21 @@ const DEVFLOW_STATUS_LABELS = {
   DONE: "完了",
 };
 
+const HUMAN_PORTFOLIO_LABELS = {
+  READY: "Ready",
+  IMPLEMENTING: "実装中",
+  NEEDS_HUMAN: "Human確認",
+  WAIT_EXTERNAL: "外部待ち",
+  NEEDS_EVIDENCE: "証拠不足",
+  NEEDS_REVIEWER: "Review待ち",
+  NEEDS_RECOVERY: "Recovery",
+};
+
 const ui = {
   grid: document.getElementById("repo-grid"),
+  portfolio: document.getElementById("human-portfolio"),
+  portfolioStatus: document.getElementById("human-portfolio-status"),
+  portfolioGrid: document.getElementById("human-portfolio-grid"),
   status: document.getElementById("status-line"),
   snapshot: document.getElementById("snapshot-line"),
   count: document.getElementById("visible-count"),
@@ -49,7 +62,12 @@ const ui = {
   chatClose: document.getElementById("chat-close"),
 };
 
-let currentState = { refresh_ms: 2000, scan: {}, repositories: [] };
+let currentState = {
+  refresh_ms: 2000,
+  scan: {},
+  human_portfolio: { sources: [], entries: [], missing_source_count: 0 },
+  repositories: [],
+};
 let editingRepoKey = null;
 let dialogOpener = null;
 let refreshTimer = null;
@@ -57,6 +75,7 @@ let refreshing = false;
 let initialLoaded = false;
 const expandedWorkflows = new Set();
 const cardViews = new Map();
+const portfolioViews = new Map();
 const pendingActions = new Set();
 
 function element(tag, className, text) {
@@ -234,6 +253,134 @@ function openChat(repo, action = "chat") {
 async function repoAction(repo, action, body = {}) {
   const key = encodeURIComponent(repo.key);
   return api(`/api/repos/${key}/${action}`, { method: "POST", body });
+}
+
+function portfolioKey(entry) {
+  return [
+    entry.source_kind || "",
+    entry.task_ref || "",
+    entry.role || "",
+    entry.publication_id || "",
+  ].join("|");
+}
+
+function ensurePortfolioView(entry) {
+  const key = portfolioKey(entry);
+  const existing = portfolioViews.get(key);
+  if (existing) return existing;
+
+  const view = { key };
+  view.item = element("article", "portfolio-item");
+  view.item.dataset.portfolioKey = key;
+
+  const heading = element("div", "portfolio-item-heading");
+  view.disposition = element("span", "portfolio-badge");
+  view.taskLink = element("a", "portfolio-task-link");
+  view.taskLink.target = "_blank";
+  view.taskLink.rel = "noopener noreferrer";
+  heading.append(view.disposition, view.taskLink);
+  view.item.append(heading);
+
+  view.repository = element("p", "portfolio-repository");
+  view.item.append(view.repository);
+
+  const meta = element("dl", "portfolio-meta");
+  const addMeta = (label) => {
+    const value = element("dd", "");
+    meta.append(element("dt", "", label), value);
+    return value;
+  };
+  view.role = addMeta("role");
+  view.sourceKind = addMeta("source");
+  view.workStatus = addMeta("work");
+  view.evidence = addMeta("evidence");
+  view.item.append(meta);
+
+  view.warning = element("p", "portfolio-source-warning");
+  view.warning.hidden = true;
+  view.item.append(view.warning);
+
+  portfolioViews.set(key, view);
+  return view;
+}
+
+function portfolioWarning(entry, portfolio) {
+  const parts = [];
+  if (portfolio.provider_stale) parts.push("devflowは前回値");
+  if (entry.cache_freshness && entry.cache_freshness !== "CURRENT") {
+    parts.push(`cache: ${entry.cache_freshness}`);
+  }
+  if (entry.cache_complete !== true) parts.push("cache不完全");
+  if (entry.evidence_freshness && entry.evidence_freshness !== "CURRENT") {
+    parts.push(`evidence: ${entry.evidence_freshness}`);
+  }
+  if (entry.evidence_trust && entry.evidence_trust !== "VERIFIED") {
+    parts.push(`trust: ${entry.evidence_trust}`);
+  }
+  return parts.join(" / ");
+}
+
+function updatePortfolioView(view, entry, portfolio) {
+  view.item.dataset.disposition = entry.disposition || "UNKNOWN";
+  view.item.dataset.cacheFreshness = entry.cache_freshness || "UNKNOWN";
+  setText(
+    view.disposition,
+    HUMAN_PORTFOLIO_LABELS[entry.disposition] || entry.disposition || "unknown",
+  );
+  view.disposition.dataset.disposition = entry.disposition || "UNKNOWN";
+
+  const taskUrl = safeWebUrl(entry.entry_ref);
+  view.taskLink.hidden = !taskUrl;
+  if (taskUrl) {
+    view.taskLink.href = taskUrl;
+    setText(view.taskLink, entry.task_ref || "task");
+  }
+
+  setText(view.repository, entry.repository || "--");
+  setText(view.role, entry.role || "--");
+  setText(view.sourceKind, entry.source_kind || "--");
+  setText(view.workStatus, entry.work_status || "--");
+  setText(
+    view.evidence,
+    [entry.evidence_freshness, entry.evidence_trust].filter(Boolean).join(" / ") || "--",
+  );
+
+  const warning = portfolioWarning(entry, portfolio);
+  view.warning.hidden = !warning;
+  if (warning) setText(view.warning, warning);
+}
+
+function humanPortfolioStatusText(portfolio) {
+  const entries = Array.isArray(portfolio.entries) ? portfolio.entries : [];
+  const sources = Array.isArray(portfolio.sources) ? portfolio.sources : [];
+  const parts = [`${entries.length} tasks`, `${sources.length} sources`];
+  const missing = Number(portfolio.missing_source_count) || 0;
+  if (missing > 0) parts.push(`cache未配信 ${missing}`);
+  if (portfolio.provider_stale) parts.push("devflowは前回値");
+  if (portfolio.provider_error) parts.push(`source error: ${shortText(portfolio.provider_error, 64)}`);
+  return parts.join(" / ");
+}
+
+function reconcileHumanPortfolio() {
+  const portfolio = currentState.human_portfolio || {};
+  const entries = Array.isArray(portfolio.entries) ? portfolio.entries : [];
+  const liveKeys = new Set(entries.map((entry) => portfolioKey(entry)));
+
+  for (const [key, view] of portfolioViews) {
+    if (liveKeys.has(key)) continue;
+    view.item.remove();
+    portfolioViews.delete(key);
+  }
+
+  let cursor = ui.portfolioGrid.firstElementChild;
+  for (const entry of entries) {
+    const view = portfolioViews.get(portfolioKey(entry)) || ensurePortfolioView(entry);
+    updatePortfolioView(view, entry, portfolio);
+    if (view.item !== cursor) ui.portfolioGrid.insertBefore(view.item, cursor);
+    cursor = view.item.nextElementSibling;
+  }
+
+  setText(ui.portfolioStatus, humanPortfolioStatusText(portfolio));
 }
 
 function ensureCardView(repo) {
@@ -453,6 +600,7 @@ function reconcileCards() {
 }
 
 function render() {
+  reconcileHumanPortfolio();
   reconcileCards();
   updateSnapshotLine();
 }
