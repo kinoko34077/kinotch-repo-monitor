@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>KiNoTch. Repo Monitor — Public</title>
+  <link rel="stylesheet" href="./pages.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">KINOTCH. REPO MONITOR</p>
+      <h1>Public Development Dashboard</h1>
+      <p class="lede">
+        public GitHub / devflow 情報だけを使う読取専用snapshotです。
+        ローカルGit状態・ローカルpath・Chat URLは含みません。
+      </p>
+    </div>
+    <a class="repo-link" href="https://github.com/kinoko34077/kinotch-repo-monitor" target="_blank" rel="noopener noreferrer">
+      GitHub
+    </a>
+  </header>
+
+  <main>
+    <section class="source-panel" aria-labelledby="snapshot-title">
+      <div>
+        <p class="eyebrow">SNAPSHOT</p>
+        <h2 id="snapshot-title">公開snapshot</h2>
+      </div>
+      <div class="snapshot-meta">
+        <span id="source-status" class="status-chip">読込中</span>
+        <span id="generated-at">生成時刻 --</span>
+      </div>
+      <p id="source-note" class="source-note">state.json を読み込んでいます。</p>
+    </section>
+
+    <section class="toolbar" aria-label="表示フィルタ">
+      <label>
+        <span>Repo検索</span>
+        <input id="search" type="search" autocomplete="off" placeholder="repository / status / next action">
+      </label>
+      <label>
+        <span>Work Status</span>
+        <select id="work-status">
+          <option value="">すべて</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="panel" aria-labelledby="queue-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">HUMAN PORTFOLIO</p>
+          <h2 id="queue-title">Development Queue</h2>
+        </div>
+        <span id="queue-count" class="count-chip">0</span>
+      </div>
+      <p class="section-note">producer-owned dispositionをそのまま表示します。操作機能はありません。</p>
+      <div id="queue-list" class="queue-list"></div>
+      <p id="queue-empty" class="empty" hidden>公開Human Portfolio entryはありません。</p>
+    </section>
+
+    <section class="panel" aria-labelledby="repositories-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">DEVFLOW CONTROLS</p>
+          <h2 id="repositories-title">Repositories</h2>
+        </div>
+        <span id="repository-count" class="count-chip">0</span>
+      </div>
+      <div id="repository-list" class="repository-list"></div>
+      <p id="repository-empty" class="empty" hidden>条件に一致するrepositoryはありません。</p>
+    </section>
+  </main>
+
+  <footer>
+    GitHub Pages read-only surface · localhost版とは別surface
+  </footer>
+
+  <script src="./pages.js" defer></script>
+</body>
+</html>
