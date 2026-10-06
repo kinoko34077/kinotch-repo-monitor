@@ -28,6 +28,42 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("view.auditSnapshot.hidden = !workflow", js)
         self.assertIn('block.addEventListener("toggle"', js)
 
+    def test_human_portfolio_uses_independent_stable_read_only_queue_surface(self):
+        html = (self.web_dir / "index.html").read_text(encoding="utf-8")
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        css = (self.web_dir / "app.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="human-portfolio"', html)
+        self.assertIn('id="human-portfolio-status"', html)
+        self.assertIn('id="human-portfolio-grid"', html)
+
+        self.assertIn("HUMAN_PORTFOLIO_LABELS", js)
+        for disposition in (
+            "READY",
+            "IMPLEMENTING",
+            "NEEDS_HUMAN",
+            "WAIT_EXTERNAL",
+            "NEEDS_EVIDENCE",
+            "NEEDS_REVIEWER",
+            "NEEDS_RECOVERY",
+        ):
+            self.assertIn(disposition, js)
+        self.assertIn("const portfolioViews = new Map()", js)
+        self.assertIn("function ensurePortfolioView", js)
+        self.assertIn("function updatePortfolioView", js)
+        self.assertIn("function reconcileHumanPortfolio", js)
+        self.assertIn("currentState.human_portfolio", js)
+        self.assertIn("safeWebUrl(entry.entry_ref)", js)
+        self.assertIn("cache_freshness", js)
+        self.assertIn("cache_complete", js)
+        self.assertIn("provider_stale", js)
+        self.assertNotIn("portfolioGrid.replaceChildren", js)
+
+        self.assertIn(".human-portfolio", css)
+        self.assertIn(".portfolio-grid", css)
+        self.assertIn(".portfolio-item", css)
+        self.assertIn(".portfolio-source-warning", css)
+
     def test_javascript_exposes_remote_repo_action_and_human_age_units(self):
         js = (self.web_dir / "app.js").read_text(encoding="utf-8")
         self.assertIn("remote_web_url", js)
