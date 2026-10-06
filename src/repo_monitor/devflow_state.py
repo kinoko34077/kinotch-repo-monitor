@@ -264,6 +264,353 @@ def _canonical_projection_generation_id(payload: Mapping[str, object]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def _require_exact_fields(
+    value: Mapping[str, object],
+    expected: frozenset[str],
+    label: str,
+) -> None:
+    missing = sorted(expected - set(value))
+    unknown = sorted(set(value) - expected)
+    if missing:
+        raise ValueError(f"{label} missing fields: " + ", ".join(missing))
+    if unknown:
+        raise ValueError(f"{label} has unknown fields: " + ", ".join(unknown))
+
+
+def _optional_string(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string or null")
+    return value.strip()
+
+
+def _canonical_human_portfolio_generation_id(
+    payload: Mapping[str, object],
+) -> str:
+    material = dict(payload)
+    material.pop("generation_id", None)
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _human_portfolio_transport_payload(body: str) -> dict[str, object] | None:
+    begin_count = body.count(HUMAN_PORTFOLIO_MARKER_BEGIN)
+    end_count = body.count(HUMAN_PORTFOLIO_MARKER_END)
+    if begin_count == 0 and end_count == 0:
+        return None
+    if begin_count != 1 or end_count != 1:
+        raise ValueError("invalid Human Portfolio marker pair")
+    start = body.index(HUMAN_PORTFOLIO_MARKER_BEGIN) + len(
+        HUMAN_PORTFOLIO_MARKER_BEGIN
+    )
+    end = body.index(HUMAN_PORTFOLIO_MARKER_END)
+    if end <= start:
+        raise ValueError("invalid Human Portfolio marker order")
+    try:
+        payload = json.loads(body[start:end].strip())
+    except json.JSONDecodeError as exc:
+        raise ValueError("malformed Human Portfolio transport") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Human Portfolio transport must be an object")
+    return payload
+
+
+def _human_task_ref(value: object, repository: str, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    match = _TASK_REF_RE.fullmatch(value)
+    if match is None or match.group(1) != repository:
+        raise ValueError(f"{field_name} must belong to Human Portfolio repository")
+    return value
+
+
+def _validate_human_portfolio_entry(
+    value: object,
+    repository: str,
+) -> HumanPortfolioEntry:
+    if not isinstance(value, Mapping):
+        raise ValueError("Human Portfolio entry must be an object")
+    _require_exact_fields(value, _HUMAN_ENTRY_FIELDS, "Human Portfolio entry")
+
+    entry_repository = str(value.get("repository") or "").strip()
+    if entry_repository != repository:
+        raise ValueError("Human Portfolio entry repository identity mismatch")
+
+    task_ref = _human_task_ref(value.get("task_ref"), repository, "entry task_ref")
+    entry_ref = value.get("entry_ref")
+    if entry_ref is not None:
+        if not isinstance(entry_ref, str):
+            raise ValueError(
+                "Human Portfolio entry_ref must be a GitHub Issue URL or null"
+            )
+        match = _ENTRY_REF_RE.fullmatch(entry_ref)
+        if match is None:
+            raise ValueError(
+                "Human Portfolio entry_ref must be a GitHub Issue URL or null"
+            )
+        linked_task = f"{match.group(1)}/{match.group(2)}#{match.group(3)}"
+        if linked_task != task_ref:
+            raise ValueError(
+                "Human Portfolio entry_ref must identify exact owning task"
+            )
+
+    disposition = value.get("disposition")
+    if disposition not in _HUMAN_DISPOSITIONS:
+        raise ValueError("unsupported Human Portfolio disposition")
+    role = value.get("role")
+    if not isinstance(role, str) or not role.strip():
+        raise ValueError("Human Portfolio role must be non-empty")
+    source_kind = value.get("source_kind")
+    if source_kind not in _HUMAN_SOURCE_KINDS:
+        raise ValueError("unsupported Human Portfolio source_kind")
+
+    observed_at = str(value.get("observed_at") or "").strip()
+    _rfc3339_epoch(observed_at, "Human Portfolio entry observed_at")
+    work_status = _optional_string(
+        value.get("work_status"),
+        "Human Portfolio work_status",
+    )
+    publication_id = _optional_string(
+        value.get("publication_id"),
+        "Human Portfolio publication_id",
+    )
+    if source_kind == "RECONCILIATION":
+        if (
+            publication_id is None
+            or _SHA256_RE.fullmatch(publication_id) is None
+        ):
+            raise ValueError(
+                "reconciliation Human Portfolio entry requires sha256 publication_id"
+            )
+    elif publication_id is not None:
+        raise ValueError(
+            "repository projection Human Portfolio entry cannot carry publication_id"
+        )
+
+    evidence_freshness = value.get("evidence_freshness")
+    if evidence_freshness not in _HUMAN_EVIDENCE_FRESHNESS:
+        raise ValueError("unsupported Human Portfolio evidence_freshness")
+    evidence_trust = value.get("evidence_trust")
+    if evidence_trust not in _HUMAN_EVIDENCE_TRUST:
+        raise ValueError("unsupported Human Portfolio evidence_trust")
+
+    return HumanPortfolioEntry(
+        repository=repository,
+        task_ref=task_ref,
+        entry_ref=entry_ref,
+        disposition=str(disposition),
+        role=role.strip(),
+        source_kind=str(source_kind),
+        observed_at=observed_at,
+        work_status=work_status,
+        publication_id=publication_id,
+        evidence_freshness=str(evidence_freshness),
+        evidence_trust=str(evidence_trust),
+    )
+
+
+def _validate_human_portfolio(
+    body: str,
+    repository: str,
+    *,
+    now: float,
+) -> HumanPortfolioState | None:
+    payload = _human_portfolio_transport_payload(body)
+    if payload is None:
+        return None
+    _require_exact_fields(payload, _HUMAN_TOP_FIELDS, "Human Portfolio cache")
+
+    if payload.get("schema_version") != HUMAN_PORTFOLIO_SCHEMA_VERSION:
+        raise ValueError("unsupported Human Portfolio schema")
+    recorded_repository = str(payload.get("repository") or "").strip()
+    if recorded_repository != repository:
+        raise ValueError("Human Portfolio repository identity mismatch")
+
+    observed_at = str(payload.get("observed_at") or "").strip()
+    generated_at = str(payload.get("generated_at") or "").strip()
+    valid_until = str(payload.get("valid_until") or "").strip()
+    observed_epoch = _rfc3339_epoch(
+        observed_at,
+        "Human Portfolio observed_at",
+    )
+    generated_epoch = _rfc3339_epoch(
+        generated_at,
+        "Human Portfolio generated_at",
+    )
+    valid_until_epoch = _rfc3339_epoch(
+        valid_until,
+        "Human Portfolio valid_until",
+    )
+    if generated_epoch < observed_epoch:
+        raise ValueError("Human Portfolio generated_at precedes observed_at")
+    if abs(
+        (valid_until_epoch - generated_epoch)
+        - HUMAN_PORTFOLIO_VALIDITY_SECONDS
+    ) > 1e-6:
+        raise ValueError("Human Portfolio validity window is noncanonical")
+
+    generation_id = str(payload.get("generation_id") or "")
+    if _SHA256_RE.fullmatch(generation_id) is None:
+        raise ValueError("Human Portfolio generation_id is invalid")
+    if generation_id != _canonical_human_portfolio_generation_id(payload):
+        raise ValueError("Human Portfolio generation_id does not match payload")
+
+    complete = payload.get("complete")
+    if not isinstance(complete, bool):
+        raise ValueError("Human Portfolio complete must be boolean")
+
+    repository_source = payload.get("repository_source")
+    if not isinstance(repository_source, Mapping):
+        raise ValueError("Human Portfolio repository_source must be an object")
+    _require_exact_fields(
+        repository_source,
+        _HUMAN_REPOSITORY_SOURCE_FIELDS,
+        "Human Portfolio repository_source",
+    )
+    repo_status = repository_source.get("status")
+    repo_freshness = repository_source.get("freshness")
+    if repo_status not in {"AVAILABLE", "UNAVAILABLE"}:
+        raise ValueError("unsupported Human Portfolio repository source status")
+    if repo_freshness not in {"CURRENT", "STALE", "UNKNOWN"}:
+        raise ValueError("unsupported Human Portfolio repository source freshness")
+    if repo_status == "UNAVAILABLE" and repo_freshness == "CURRENT":
+        raise ValueError(
+            "unavailable Human Portfolio repository source cannot be current"
+        )
+    repository_source_value = {
+        "status": str(repo_status),
+        "freshness": str(repo_freshness),
+        "error": _optional_string(
+            repository_source.get("error"),
+            "Human Portfolio repository source error",
+        ),
+    }
+
+    reconciliation_source = payload.get("reconciliation_source")
+    if not isinstance(reconciliation_source, Mapping):
+        raise ValueError(
+            "Human Portfolio reconciliation_source must be an object"
+        )
+    _require_exact_fields(
+        reconciliation_source,
+        _HUMAN_RECONCILIATION_SOURCE_FIELDS,
+        "Human Portfolio reconciliation_source",
+    )
+    recon_status = reconciliation_source.get("status")
+    recon_trust = reconciliation_source.get("trust")
+    if recon_status not in {"AVAILABLE", "INVALID"}:
+        raise ValueError("unsupported Human Portfolio reconciliation status")
+    if recon_trust not in {"VERIFIED", "UNKNOWN"}:
+        raise ValueError("unsupported Human Portfolio reconciliation trust")
+    if recon_status == "AVAILABLE" and recon_trust != "VERIFIED":
+        raise ValueError(
+            "available Human Portfolio reconciliation source must be verified"
+        )
+    if recon_status == "INVALID" and recon_trust == "VERIFIED":
+        raise ValueError(
+            "invalid Human Portfolio reconciliation source cannot be verified"
+        )
+
+    control_number = reconciliation_source.get("control_issue_number")
+    if (
+        not isinstance(control_number, int)
+        or isinstance(control_number, bool)
+        or control_number < 1
+    ):
+        raise ValueError("Human Portfolio control_issue_number must be positive")
+    expected_control_url = (
+        f"https://github.com/kinoko34077/devflow/issues/{control_number}"
+    )
+    if reconciliation_source.get("control_url") != expected_control_url:
+        raise ValueError("Human Portfolio control_url does not match Control issue")
+
+    task_errors = reconciliation_source.get("task_errors")
+    if not isinstance(task_errors, list):
+        raise ValueError("Human Portfolio task_errors must be an array")
+    if len(task_errors) > HUMAN_PORTFOLIO_MAX_TASK_ERRORS:
+        raise ValueError("Human Portfolio task_errors exceeds bounded maximum")
+    normalized_task_errors: list[dict[str, str]] = []
+    for item in task_errors:
+        if not isinstance(item, Mapping):
+            raise ValueError("Human Portfolio task error must be an object")
+        _require_exact_fields(
+            item,
+            _HUMAN_TASK_ERROR_FIELDS,
+            "Human Portfolio task error",
+        )
+        task_ref = _human_task_ref(
+            item.get("task_ref"),
+            repository,
+            "Human Portfolio task error task_ref",
+        )
+        error = item.get("error")
+        if not isinstance(error, str) or not error.strip():
+            raise ValueError("Human Portfolio task error must be non-empty")
+        normalized_task_errors.append(
+            {"task_ref": task_ref, "error": error.strip()}
+        )
+
+    reconciliation_source_value = {
+        "status": str(recon_status),
+        "trust": str(recon_trust),
+        "control_issue_number": control_number,
+        "control_url": expected_control_url,
+        "error": _optional_string(
+            reconciliation_source.get("error"),
+            "Human Portfolio reconciliation error",
+        ),
+        "task_errors": normalized_task_errors,
+    }
+
+    raw_entries = payload.get("entries")
+    if not isinstance(raw_entries, list):
+        raise ValueError("Human Portfolio entries must be an array")
+    if len(raw_entries) > HUMAN_PORTFOLIO_MAX_ENTRIES:
+        raise ValueError("Human Portfolio entries exceeds bounded maximum")
+    entries = tuple(
+        _validate_human_portfolio_entry(item, repository)
+        for item in raw_entries
+    )
+
+    if now < generated_epoch:
+        transport_status = "UNKNOWN"
+    elif now > valid_until_epoch:
+        transport_status = "STALE"
+    elif repo_status != "AVAILABLE":
+        transport_status = "UNAVAILABLE"
+    elif repo_freshness == "STALE":
+        transport_status = "STALE"
+    elif repo_freshness != "CURRENT":
+        transport_status = "UNKNOWN"
+    elif recon_status != "AVAILABLE":
+        transport_status = "INVALID"
+    elif recon_trust != "VERIFIED":
+        transport_status = "UNKNOWN"
+    elif not complete:
+        transport_status = "INCOMPLETE"
+    else:
+        transport_status = "CURRENT"
+
+    return HumanPortfolioState(
+        repository=repository,
+        observed_at=observed_at,
+        generated_at=generated_at,
+        valid_until=valid_until,
+        generation_id=generation_id,
+        complete=complete,
+        transport_status=transport_status,
+        repository_source=repository_source_value,
+        reconciliation_source=reconciliation_source_value,
+        entries=entries,
+    )
+
+
 def _projection_transport_payload(body: str) -> dict[str, object] | None:
     begin_count = body.count(PROJECTION_MARKER_BEGIN)
     end_count = body.count(PROJECTION_MARKER_END)
