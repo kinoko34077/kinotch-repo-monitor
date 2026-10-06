@@ -59,8 +59,10 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn("safeWebUrl(entry.entry_ref)", js)
         self.assertIn("human-portfolio-card", js)
         self.assertIn("human-portfolio-entry", js)
+        self.assertIn("humanPortfolioRenderKey", js)
         self.assertIn(".human-portfolio-panel", css)
         self.assertIn('data-transport-status', css)
+        self.assertNotIn('id="human-portfolio-list" class="human-portfolio-list" aria-live=', html)
         self.assertNotIn("innerHTML", js)
 
 

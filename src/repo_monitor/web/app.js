@@ -79,6 +79,7 @@ let dialogOpener = null;
 let refreshTimer = null;
 let refreshing = false;
 let initialLoaded = false;
+let humanPortfolioRenderKey = null;
 const expandedWorkflows = new Set();
 const cardViews = new Map();
 const pendingActions = new Set();
@@ -450,6 +451,13 @@ function renderHumanPortfolio() {
   const providerStale = Boolean(currentState.devflow?.stale);
   const providerError = String(currentState.devflow?.error || "");
   const currentCount = portfolios.filter((portfolio) => portfolio.current).length;
+  const renderKey = JSON.stringify({
+    providerStale,
+    providerError,
+    portfolios,
+  });
+  if (renderKey === humanPortfolioRenderKey) return;
+  humanPortfolioRenderKey = renderKey;
 
   ui.portfolioList.replaceChildren();
   ui.portfolioEmpty.hidden = portfolios.length !== 0;

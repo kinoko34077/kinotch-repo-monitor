@@ -707,13 +707,35 @@ class BrowserAudit:
             error=portfolio_error,
         ))
 
-        self.devtools.evaluate("window.__auditCard = document.querySelector('.repo-card'); true")
+        self.devtools.evaluate(
+            "window.__auditCard = document.querySelector('.repo-card'); "
+            "window.__auditPortfolioEntry = document.querySelector('.human-portfolio-entry'); true"
+        )
         time.sleep(self.refresh_wait)
         stable = bool(self.devtools.evaluate("window.__auditCard === document.querySelector('.repo-card')"))
         checks.append(CheckResult(
             name="interaction.card_identity", status="PASS" if stable else "FAIL",
             measured={"same_node": stable}, rule="routine refresh must retain the repository card DOM node",
             error=None if stable else "card root was replaced during routine refresh",
+        ))
+        portfolio_entry_existed = bool(
+            self.devtools.evaluate("Boolean(window.__auditPortfolioEntry)")
+        )
+        portfolio_identity = bool(
+            self.devtools.evaluate(
+                "!window.__auditPortfolioEntry || "
+                "window.__auditPortfolioEntry === document.querySelector('.human-portfolio-entry')"
+            )
+        )
+        checks.append(CheckResult(
+            name="interaction.human_portfolio_identity",
+            status="PASS" if portfolio_identity else "FAIL",
+            measured={
+                "entry_existed": portfolio_entry_existed,
+                "same_node": portfolio_identity,
+            },
+            rule="unchanged Human Portfolio data must retain the task-entry DOM node across routine refresh",
+            error=None if portfolio_identity else "Human Portfolio entry node was replaced during unchanged refresh",
         ))
         focus_result = self.devtools.evaluate(
             r"""(() => {
