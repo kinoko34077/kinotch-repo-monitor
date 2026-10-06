@@ -21,12 +21,36 @@ const DEVFLOW_STATUS_LABELS = {
   DONE: "完了",
 };
 
+const HUMAN_DISPOSITION_LABELS = {
+  READY: "実装待ち",
+  IMPLEMENTING: "実装中",
+  NEEDS_HUMAN: "人間対応",
+  WAIT_EXTERNAL: "外部待ち",
+  NEEDS_EVIDENCE: "証拠不足",
+  NEEDS_REVIEWER: "レビュー必要",
+  NEEDS_RECOVERY: "復旧可能",
+};
+
+const HUMAN_TRANSPORT_LABELS = {
+  CURRENT: "最新",
+  STALE: "期限切れ",
+  INCOMPLETE: "不完全",
+  INVALID: "無効",
+  UNAVAILABLE: "取得不能",
+  UNKNOWN: "不明",
+};
+
 const ui = {
   grid: document.getElementById("repo-grid"),
   status: document.getElementById("status-line"),
   snapshot: document.getElementById("snapshot-line"),
   count: document.getElementById("visible-count"),
   empty: document.getElementById("empty-state"),
+  portfolioSection: document.getElementById("human-portfolio-section"),
+  portfolioList: document.getElementById("human-portfolio-list"),
+  portfolioStatus: document.getElementById("human-portfolio-status"),
+  portfolioNotice: document.getElementById("human-portfolio-notice"),
+  portfolioEmpty: document.getElementById("human-portfolio-empty"),
   refresh: document.getElementById("refresh-button"),
   rediscover: document.getElementById("rediscover-button"),
   addButton: document.getElementById("repo-add-button"),
@@ -421,6 +445,145 @@ function updateCardView(view, repo) {
   if (repoUrl) view.actions.repo.href = repoUrl;
 }
 
+function renderHumanPortfolio() {
+  const portfolios = currentState.devflow?.human_portfolios || [];
+  const providerStale = Boolean(currentState.devflow?.stale);
+  const providerError = String(currentState.devflow?.error || "");
+  const currentCount = portfolios.filter((portfolio) => portfolio.current).length;
+
+  ui.portfolioList.replaceChildren();
+  ui.portfolioEmpty.hidden = portfolios.length !== 0;
+  ui.portfolioSection.dataset.providerStale = providerStale ? "true" : "false";
+
+  if (providerError) {
+    setText(ui.portfolioStatus, "devflow取得エラー");
+    ui.portfolioStatus.dataset.state = "ERROR";
+    setText(
+      ui.portfolioNotice,
+      `devflow更新に失敗しています。表示中のキューは前回値です: ${providerError}`,
+    );
+  } else if (providerStale) {
+    setText(ui.portfolioStatus, "前回値");
+    ui.portfolioStatus.dataset.state = "STALE";
+    setText(
+      ui.portfolioNotice,
+      "devflow更新が古いため、表示中のキューは現在値として扱えません。",
+    );
+  } else {
+    setText(ui.portfolioStatus, `${currentCount} / ${portfolios.length} current`);
+    ui.portfolioStatus.dataset.state =
+      currentCount === portfolios.length ? "CURRENT" : "NONCURRENT";
+    setText(
+      ui.portfolioNotice,
+      "devflowが生成した読取専用キューです。ローカルGit活動とは別の状態です。",
+    );
+  }
+
+  for (const portfolio of portfolios) {
+    const card = element("article", "human-portfolio-card");
+    card.dataset.transportStatus = portfolio.transport_status || "UNKNOWN";
+
+    const heading = element("div", "human-portfolio-card-heading");
+    const repository = element(
+      "h3",
+      "human-portfolio-repository",
+      portfolio.repository || "unknown repository",
+    );
+    const transport = element(
+      "span",
+      "human-portfolio-transport",
+      HUMAN_TRANSPORT_LABELS[portfolio.transport_status]
+        || portfolio.transport_status
+        || "不明",
+    );
+    heading.append(repository, transport);
+    card.append(heading);
+
+    const timing = element(
+      "p",
+      "human-portfolio-timing",
+      `観測 ${portfolio.observed_at || "--"} · 生成 ${portfolio.generated_at || "--"}`,
+    );
+    card.append(timing);
+
+    if (!portfolio.current) {
+      card.append(
+        element(
+          "p",
+          "human-portfolio-warning",
+          "非currentのため、項目は最終観測値として表示しています。",
+        ),
+      );
+    }
+
+    const entries = element("div", "human-portfolio-entries");
+    const items = Array.isArray(portfolio.entries) ? portfolio.entries : [];
+    if (items.length === 0) {
+      entries.append(element("p", "human-portfolio-no-items", "キュー項目なし"));
+    }
+
+    for (const entry of items) {
+      const row = element("div", "human-portfolio-entry");
+      row.dataset.disposition = entry.disposition || "UNKNOWN";
+
+      const disposition = element(
+        "span",
+        "human-disposition-badge",
+        HUMAN_DISPOSITION_LABELS[entry.disposition]
+          || entry.disposition
+          || "不明",
+      );
+      const body = element("div", "human-portfolio-entry-body");
+      const taskLink = safeWebUrl(entry.entry_ref);
+      const task = taskLink
+        ? element("a", "human-portfolio-task", entry.task_ref || "--")
+        : element("span", "human-portfolio-task", entry.task_ref || "--");
+      if (taskLink) {
+        task.href = taskLink;
+        task.target = "_blank";
+        task.rel = "noopener noreferrer";
+      }
+      const meta = element(
+        "span",
+        "human-portfolio-entry-meta",
+        [entry.role, entry.source_kind, entry.evidence_freshness]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      body.append(task, meta);
+      row.append(disposition, body);
+      entries.append(row);
+    }
+    card.append(entries);
+
+    const recon = portfolio.reconciliation_source || {};
+    const sourceParts = [
+      `repo: ${portfolio.repository_source?.status || "UNKNOWN"}/${portfolio.repository_source?.freshness || "UNKNOWN"}`,
+      `reconciliation: ${recon.status || "UNKNOWN"}/${recon.trust || "UNKNOWN"}`,
+      portfolio.complete ? "complete" : "incomplete",
+    ];
+    card.append(
+      element("p", "human-portfolio-source", sourceParts.join(" · ")),
+    );
+
+    const sourceErrors = [];
+    if (portfolio.repository_source?.error) {
+      sourceErrors.push(portfolio.repository_source.error);
+    }
+    if (recon.error) sourceErrors.push(recon.error);
+    for (const item of recon.task_errors || []) {
+      if (item?.error) sourceErrors.push(`${item.task_ref || "task"}: ${item.error}`);
+    }
+    if (sourceErrors.length) {
+      card.append(
+        element("p", "human-portfolio-source-error", sourceErrors.join(" / ")),
+      );
+    }
+
+    ui.portfolioList.append(card);
+  }
+}
+
 function reconcileCards() {
   const liveKeys = new Set(currentState.repositories.map((repo) => repo.key));
   for (const [key, view] of cardViews) {
@@ -453,6 +616,7 @@ function reconcileCards() {
 }
 
 function render() {
+  renderHumanPortfolio();
   reconcileCards();
   updateSnapshotLine();
 }
