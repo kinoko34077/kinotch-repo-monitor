@@ -2,6 +2,24 @@
 
 複数の開発repoを並行して扱う際に、ローカルGitの活動状況とdevflow上の開発工程をブラウザのカードで一覧する軽量localhost Webアプリです。
 
+## GitHub Pages（read-only）
+
+公開版: https://kinoko34077.github.io/kinotch-repo-monitor/
+
+Pages版はpublic GitHub/devflow情報だけから生成する静的な読取専用dashboardです。repository workflow/audit状態とHuman Portfolioを外から確認できます。
+
+Pages版には以下を含めません。
+
+- ローカルfilesystem path
+- ChatGPT URL
+- local Gitのdirty / ahead / behind / activity状態
+- local config
+- credential / session
+- mutation/write-back操作
+
+ローカルGit監視、Chatリンク、Repo追加、再検出等が必要な場合は従来どおりlocalhost版を使用します。
+
+
 ## v0.5の要点
 
 - `GET /api/state` はGitを走査せず、直近完了したローカルsnapshotを返します。
