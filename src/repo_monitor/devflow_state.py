@@ -723,12 +723,13 @@ def _is_trusted_control_issue(
     )
 
 
-def parse_control_issues(
+def _parse_control_data(
     issues: Iterable[Mapping[str, object]],
     *,
     now: float | None = None,
-) -> dict[str, DevflowRepoState]:
+) -> tuple[dict[str, DevflowRepoState], dict[str, HumanPortfolioState]]:
     states: dict[str, DevflowRepoState] = {}
+    portfolios: dict[str, HumanPortfolioState] = {}
     seen_names: dict[str, str] = {}
     observed_now = time.time() if now is None else float(now)
     for issue in issues:
@@ -775,7 +776,24 @@ def parse_control_issues(
             last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
             audit_freshness=_audit_freshness_projection(issue),
         )
+        if repository_full_name:
+            portfolio = _validate_human_portfolio(
+                body_text,
+                repository_full_name,
+                now=observed_now,
+            )
+            if portfolio is not None:
+                portfolios[repository_full_name] = portfolio
         seen_names[folded] = str(issue.get("number") or 0)
+    return states, portfolios
+
+
+def parse_control_issues(
+    issues: Iterable[Mapping[str, object]],
+    *,
+    now: float | None = None,
+) -> dict[str, DevflowRepoState]:
+    states, _portfolios = _parse_control_data(issues, now=now)
     return states
 
 
@@ -824,6 +842,7 @@ class DevflowStateProvider:
         self._retry_seconds = max(1.0, float(retry_seconds))
         self._lock = threading.RLock()
         self._repositories: dict[str, DevflowRepoState] = {}
+        self._human_portfolios: dict[str, HumanPortfolioState] = {}
         self._fetched_at: float | None = None
         self._last_attempt_at: float | None = None
         self._error: str | None = None
@@ -833,7 +852,13 @@ class DevflowStateProvider:
     def _current_locked(self, *, stale: bool | None = None) -> DevflowSnapshot:
         if stale is None:
             stale = bool(self._error)
-        return DevflowSnapshot(dict(self._repositories), self._fetched_at, self._error, stale)
+        return DevflowSnapshot(
+            dict(self._repositories),
+            self._fetched_at,
+            self._error,
+            stale,
+            dict(self._human_portfolios),
+        )
 
     def _refresh_due_locked(self, now: float) -> bool:
         fresh = self._fetched_at is not None and now - self._fetched_at < self._ttl_seconds
@@ -845,9 +870,15 @@ class DevflowStateProvider:
         retry_blocked = retry_until is not None and now < retry_until
         return not fresh and not retry_blocked
 
-    def _apply_success(self, repositories: dict[str, DevflowRepoState], fetched_at: float) -> None:
+    def _apply_success(
+        self,
+        repositories: dict[str, DevflowRepoState],
+        human_portfolios: dict[str, HumanPortfolioState],
+        fetched_at: float,
+    ) -> None:
         with self._lock:
             self._repositories = repositories
+            self._human_portfolios = human_portfolios
             self._fetched_at = fetched_at
             self._error = None
             self._retry_not_before = None
@@ -867,11 +898,14 @@ class DevflowStateProvider:
 
     def _background_refresh(self, attempted_at: float) -> None:
         try:
-            repositories = parse_control_issues(self._fetcher(), now=attempted_at)
+            repositories, human_portfolios = _parse_control_data(
+                self._fetcher(),
+                now=attempted_at,
+            )
         except Exception as exc:
             self._apply_failure(exc)
             return
-        self._apply_success(repositories, attempted_at)
+        self._apply_success(repositories, human_portfolios, attempted_at)
 
     def snapshot_nonblocking(self) -> DevflowSnapshot:
         now = self._clock()
@@ -898,12 +932,15 @@ class DevflowStateProvider:
             self._last_attempt_at = now
 
         try:
-            repositories = parse_control_issues(self._fetcher(), now=now)
+            repositories, human_portfolios = _parse_control_data(
+                self._fetcher(),
+                now=now,
+            )
         except Exception as exc:
             self._apply_failure(exc)
             with self._lock:
                 return self._current_locked(stale=True)
 
-        self._apply_success(repositories, now)
+        self._apply_success(repositories, human_portfolios, now)
         with self._lock:
             return self._current_locked(stale=False)
