@@ -266,7 +266,7 @@ class DevflowStateTests(unittest.TestCase):
             "body": ISSUE_BODY + projection_transport(),
         }
 
-        states = parse_control_issues([issue])
+        states = parse_control_issues([issue], now=1791093600.0)
 
         self.assertEqual(list(states), ["example-repo"])
         self.assertEqual(states["example-repo"].issue_number, 59)
