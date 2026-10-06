@@ -60,7 +60,12 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Consume derived `Audit Freshness` only from exactly one devflow machine-owned Control label: `devflow:audit-freshness:current`, `devflow:audit-freshness:drifted`, or `devflow:audit-freshness:unknown`. A persisted Control-body `Audit Freshness` value is not authority and is ignored.
 - If no recognized freshness label is present, leave `audit_freshness` empty without local re-derivation. If multiple recognized freshness labels are present, reject that devflow refresh as ambiguous; after a prior success, preserve the last-good snapshot through the existing stale-provider path.
 - Repo Monitor must not resolve Audit Ref heads, infer missing audit timestamps/depths, or calculate an independent `Audit Freshness`; it only consumes the devflow-owned projection.
-- Match local basename to `[REPO]` control name case-insensitively in v0.5.
+- Associate a local repository with devflow state only when its cached Git `origin` resolves to the exact canonical GitHub `owner/repo` identity carried by the trusted Control; basename-only association is not authority.
+- When a trusted Control carries exactly one valid `DEVFLOW_HUMAN_PORTFOLIO_V1` / `human-portfolio-cache.v1` marker, consume it as a separate read-only Human Portfolio projection from the same cached Control fetch.
+- Validate Human Portfolio schema, exact repository/task/Issue-link identity, generation digest, canonical 24-hour validity, source/trust state, bounded entry/error counts, and reconciliation publication identity before exposing it.
+- Preserve producer-owned queue dispositions and multiple task/workstream entries without locally reclassifying workflow semantics.
+- Expose Human Portfolio transport state explicitly as `CURRENT`, `STALE`, `INCOMPLETE`, `INVALID`, `UNAVAILABLE`, or `UNKNOWN`; only `CURRENT` is current.
+- A malformed/tampered Human Portfolio marker rejects that refresh through the existing provider failure path and preserves the last successful snapshot as stale when one exists. A missing Human Portfolio marker is allowed and yields no Human Portfolio entries.
 - Cache one complete open-Issue fetch for 120 seconds by default and refresh it in a daemon background thread.
 - Failed refreshes use the normal retry delay, but when GitHub supplies `X-RateLimit-Reset` the provider will not retry before that reset instant.
 - GitHub latency/failure must not block local `/api/state` or local scan cycles.
@@ -82,6 +87,10 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Secondary normal text must use the audited contrast token (`#59616c` or darker against white).
 - Search may include collapsed devflow fields, but any match that depends on a hidden field must render a visible match-reason snippet without auto-expanding the details.
 - When audit provenance exists, cards show a compact always-visible audit snapshot using the available depth/date/freshness values; expanded devflow details expose audit Ref/SHA, evidence, and last-deep-audit value.
+- Render Human Portfolio as a separate `Development Queue` section, not as local Git activity or a replacement for repository cards.
+- Each Human Portfolio repository card must display transport freshness/currentness explicitly and retain last-known entries only with a visible non-current warning when the transport is not current.
+- Human Portfolio task/workstream entries may expose only read-only canonical navigation links; the queue must not contain hidden workflow mutation controls.
+- Unchanged Human Portfolio payloads must retain their task-entry DOM nodes across routine refresh, and the 2-second queue refresh must not be an `aria-live` announcement source.
 - Search may include audit provenance fields; a match that depends on one of those collapsed values must use the same visible match-reason behavior.
 - Search/filtering must not mutate persistent state.
 - Repository data is inserted with text/property DOM APIs, never unsanitized `innerHTML`.
@@ -91,7 +100,7 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - `GET /`: dashboard HTML.
 - `GET /app.css`: dashboard stylesheet.
 - `GET /app.js`: dashboard JavaScript.
-- `GET /api/state`: cached registry + latest completed local snapshot + cached devflow overlay + scan metadata. This route must not invoke Git inspection.
+- `GET /api/state`: cached registry + latest completed local snapshot + cached devflow overlay (including `devflow.human_portfolios`) + scan metadata. This route must not invoke Git inspection.
 - `POST /api/refresh`: request/coalesce a local Git scan and return promptly.
 - `POST /api/rediscover`: rediscover configured roots, merge/persist registry, and request scan only when monitored membership changed.
 - `POST /api/repos/add`: validate `.git`, explicitly enable monitoring for the path, persist it, and request a scan.
