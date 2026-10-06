@@ -158,6 +158,8 @@ class PagesBuildTests(unittest.TestCase):
             "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
             workflow,
         )
+        self.assertIn("url: ${{ steps.deployment.outputs.page_url }}", workflow)
+        self.assertNotIn(r"url: \${{", workflow)
         self.assertNotIn("enablement:", workflow)
 
 
