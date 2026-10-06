@@ -97,6 +97,22 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - At H4 acceptance-time live verification, no Human Portfolio cache marker had yet been projected into the live Controls, so the live queue was empty; the consumer path itself is covered by deterministic entry-bearing browser fixtures and remains read-only.
 - #35 credential configuration + live archive-listener E2E remains a separate Human/security gate and was not crossed by #32.
 
+
+### Public GitHub Pages dashboard — Issue #54 / PR #55
+
+- PR #55 is accepted on main at `446d65a54013e500153fca7432e2df81ee2d8e14`.
+- The public dashboard is available at `https://kinoko34077.github.io/kinotch-repo-monitor/` and is served over HTTPS.
+- Pages is a separate static read-only surface; the localhost server remains loopback-only and retains all local Git/configuration/mutation behavior.
+- `tools/build_pages.py` uses the existing trusted devflow parser to generate `repo-monitor-pages.v1` state from public devflow Controls. At acceptance-time live generation returned 44 repositories and 0 Human Portfolio entries.
+- The public snapshot excludes local filesystem paths, Chat URLs, local dirty/ahead/behind/activity state, local configuration, credentials, sessions and mutation controls.
+- The browser surface renders static `state.json`, supports repository search/work-status filtering and Human Portfolio display, and restricts dynamic navigation to HTTPS GitHub links without `innerHTML` or backend mutation/auth paths.
+- The Pages workflow uses immutable-SHA-pinned official Actions. The build job has `contents: read` only; `pages: write` and `id-token: write` are scoped to the deploy job.
+- Exact-head push/PR Verify `37409190017` / `37409194547` passed on `d6ae46c807464f4c29ff47bf1c30e1e406edd3c2`.
+- Same-system full Formal Review `5423492646` found no blocking finding. The required different-system security/permission review used local credential-free Ollama `qwen3.5:9b` on the exact head; Review `5423564633` returned APPROVE with zero blocking findings.
+- Post-main Verify `37410481371` passed.
+- After the repository Pages site was enabled with `build_type=workflow`, Pages run `37410481199` attempt 2 completed both build and deploy successfully. A live HTTPS request returned HTTP 200 with title `KiNoTch. Repo Monitor — Public`.
+- The prior v0.5 non-goal against public/LAN hosting continues to apply to the localhost runtime; it no longer excludes this separately bounded static Pages surface.
+
 ### Issue #30 maintenance hardening - accepted
 
 PR #33 completed the four deferred P3 follow-ups from Issue #27 without changing its accepted trust-boundary decisions. The squash merge is accepted on `main` at `26500ed383a2bb1b8fde17757980db3692cb9ad9`:
@@ -217,4 +233,4 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active line; PR #28 is the accepted security-hardening change for Issue #27, and PR #33 is the accepted deferred P3 maintenance hardening for Issue #30. Neither introduces a release/deployment action.
+Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active localhost line. PR #55 / Issue #54 additionally establish the separate public read-only GitHub Pages surface at `https://kinoko34077.github.io/kinotch-repo-monitor/`; this does not expose or replace the loopback localhost runtime.
