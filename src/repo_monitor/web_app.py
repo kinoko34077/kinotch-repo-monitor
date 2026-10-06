@@ -227,6 +227,10 @@ class RepoMonitorService:
                 "fetched_at": devflow.fetched_at,
                 "stale": devflow.stale,
                 "error": devflow.error,
+                "human_portfolios": [
+                    devflow.human_portfolios[key].as_dict()
+                    for key in sorted(devflow.human_portfolios)
+                ],
             },
             "repositories": repositories,
         }

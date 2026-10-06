@@ -43,6 +43,28 @@ class WebAssetDevflowTests(unittest.TestCase):
         self.assertIn(".workflow-details", css)
         self.assertIn(".audit-snapshot", css)
 
+    def test_human_portfolio_is_a_separate_read_only_operator_queue(self):
+        html = (self.web_dir / "index.html").read_text(encoding="utf-8")
+        js = (self.web_dir / "app.js").read_text(encoding="utf-8")
+        css = (self.web_dir / "app.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="human-portfolio-section"', html)
+        self.assertIn('id="human-portfolio-list"', html)
+        self.assertIn('id="human-portfolio-status"', html)
+        self.assertIn("HUMAN_DISPOSITION_LABELS", js)
+        self.assertIn("HUMAN_TRANSPORT_LABELS", js)
+        self.assertIn("currentState.devflow?.human_portfolios", js)
+        self.assertIn("portfolio.transport_status", js)
+        self.assertIn("entry.disposition", js)
+        self.assertIn("safeWebUrl(entry.entry_ref)", js)
+        self.assertIn("human-portfolio-card", js)
+        self.assertIn("human-portfolio-entry", js)
+        self.assertIn("humanPortfolioRenderKey", js)
+        self.assertIn(".human-portfolio-panel", css)
+        self.assertIn('data-transport-status', css)
+        self.assertNotIn('id="human-portfolio-list" class="human-portfolio-list" aria-live=', html)
+        self.assertNotIn("innerHTML", js)
+
 
 if __name__ == "__main__":
     unittest.main()
