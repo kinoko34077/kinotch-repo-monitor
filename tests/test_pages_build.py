@@ -143,6 +143,7 @@ class PagesBuildTests(unittest.TestCase):
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
+        self.assertIn("permissions:\n      contents: read", workflow)
         self.assertIn("pages: write", workflow)
         self.assertIn("id-token: write", workflow)
         self.assertIn("python tools/build_pages.py --output _site", workflow)
