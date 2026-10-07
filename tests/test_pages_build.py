@@ -131,7 +131,7 @@ class PagesBuildTests(unittest.TestCase):
             )
             html = (output / "index.html").read_text(encoding="utf-8")
             js = (output / "pages.js").read_text(encoding="utf-8")
-            self.assertIn("Public Development Dashboard", html)
+            self.assertIn("Repo Monitor", html)
             self.assertIn('fetch("./state.json"', js)
             self.assertNotIn("innerHTML", js)
             self.assertNotIn('method: "POST"', js)
