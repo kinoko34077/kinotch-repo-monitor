@@ -95,7 +95,7 @@ Issues #16, #17 and #18 are completed. Issue #20 is closed as the integration/TD
 - exact-head push and PR Verify `37402328320` / `37402332252` passed on reviewed head `88e78f9d7c7dbddeb6809747600d16de95749c27`; same-system Formal Review `5422974743` found no blocking findings; post-main Verify `37402525958` passed.
 - deterministic CDP verification recorded `interaction.human_portfolio_render=PASS`, `interaction.human_portfolio_identity=PASS`, and 1440px/360px geometry PASS. Actual assistive-technology speech remains the existing unverified accessibility boundary.
 - At H4 acceptance-time live verification, no Human Portfolio cache marker had yet been projected into the live Controls, so the live queue was empty; the consumer path itself is covered by deterministic entry-bearing browser fixtures and remains read-only.
-- #35 credential configuration + live archive-listener E2E remains a separate Human/security gate and was not crossed by #32.
+- #35 credential-backed archive-listener acceptance is complete. On 2026-10-07 the dedicated fixture #51 exercised body edit, comment edit and close-flush; archive commit `97c9b4863faf9f08e8e5a5ce3a239cfcb60b17e0` contains both two-edit histories and pending-target cleanup. Credential values remained opaque.
 
 
 ### Public GitHub Pages dashboard — Issue #54 / PR #55
