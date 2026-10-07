@@ -224,6 +224,7 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 - `_run_python.cmd tools\benchmark_cached_state.py`: 24-entry cached state latency/no-overlap benchmark while idle and while a generation is running.
 - `_run_python.cmd tools\browser_interaction_check.py`: real-browser focus/selection/dialog/filter identity regression.
 - `_run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png`: browser render check.
+- `_run_python.cmd tools\pages_browser_check.py --desktop-screenshot pages-desktop.png --mobile-screenshot pages-mobile.png`: public Pages desktop/tablet/mobile interaction and reflow regression.
 - `.github/workflows/verify.yml`: Windows CI and screenshot artifact.
 - PR #21: v0.5 architectural implementation merge.
 - PR #23: real-host cached-state hot-path repair.
@@ -231,6 +232,23 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 - Issue #20: v0.5 integration/re-audit record.
 - Issues #16/#17/#18: completed P1 defect records.
 
+## Public Pages portfolio redesign — Issue #59 / PR #61
+
+- PR #61 was squash-merged to `main` at `1911fb2be95035e07e761f4c674477e87ba51a11` after explicit Human publication authorization.
+- The public Pages overview now uses a compact native repository table/list plus contextual repository Inspector instead of the previous variable-height repository card grid.
+- Overview rows keep comparison fields compact: repository identity, Work Status, Repository State, audit freshness/depth, update time, Next Action preview, and canonical Control navigation.
+- Full Next Action, Active Work, audit provenance/evidence, and repository Human Portfolio detail are disclosed in the selected-repository Inspector instead of being expanded across every row.
+- Pages supports Work / Repository State / Audit filters, deterministic sort modes, raw-status summary shortcuts, URL-backed filter/sort state, and visible `MatchReason` text when search matches a hidden detail field.
+- Human Portfolio chrome is suppressed when all entries are empty and transports are current; non-current transport still produces an explicit warning even with zero entries.
+- Medium widths use an overlay/drawer Inspector; mobile widths restructure the repository table into a compact list rather than stacking long desktop cards.
+- The changed accessibility contract includes visible focus, native controls/table semantics, `aria-controls` / `aria-expanded` on repository selectors, drawer focus entry, Escape close with opener focus return, summary-shortcut focus continuity, and mobile-sized interactive targets.
+- The public read-only security/data boundary remains unchanged: `repo-monitor-pages.v1`, trusted public devflow-derived data only, safe HTTPS GitHub navigation, no auth/token/write-back/POST/local-runtime bridge, and no local path/Chat URL/local Git/config/credential/session exposure.
+- New `tools/pages_browser_check.py` adds deterministic real-browser verification at 1440×900, 1024×768, and 390×844, including desktop row density, responsive restructuring, Inspector interaction, focus continuity, hidden-field MatchReason, Human Portfolio transport warning, load-error/retry recovery, and body-level overflow checks.
+- Exact-head PR Verify `37597222908` succeeded on `21f2f4a3bf3734d198db50c8593d18bbc88f5b40`; Formal Review `5439989912` reported no blocking findings.
+- Post-main Verify `37599082203` succeeded on `1911fb2be95035e07e761f4c674477e87ba51a11`.
+- Pages workflow run `37599081853` built the static snapshot, passed the Pages contract tests, deployed commit `1911fb2be95035e07e761f4c674477e87ba51a11`, and reported the environment URL `https://kinoko34077.github.io/kinotch-repo-monitor/`.
+- The published URL was subsequently fetched from an external authorized host and returned the redesigned `Repo Monitor — Public` Table + Inspector HTML; the published `state.json` was also retrievable with current `repo-monitor-pages.v1` data.
+
 ## Repository publication
 
-Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active localhost line. PR #55 / Issue #54 additionally establish the separate public read-only GitHub Pages surface at `https://kinoko34077.github.io/kinotch-repo-monitor/`; this does not expose or replace the loopback localhost runtime.
+Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active localhost line. PR #55 / Issue #54 established the separate public read-only GitHub Pages surface at `https://kinoko34077.github.io/kinotch-repo-monitor/`; Issue #59 / PR #61 redesign that public surface into the accepted compact Table + Inspector portfolio view without exposing or replacing the loopback localhost runtime.
