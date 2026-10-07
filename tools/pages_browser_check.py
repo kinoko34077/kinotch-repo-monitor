@@ -216,6 +216,19 @@ def run_browser_checks(
                 devtools.evaluate("document.getElementById('human-queue').hidden"),
             )
             require(
+                "closed-inspector-control-hidden",
+                devtools.evaluate("document.getElementById('inspector-close').hidden"),
+            )
+            require(
+                "summary-shortcut-keeps-focus",
+                devtools.evaluate(
+                    "(() => { const button = document.querySelector('.summary-button'); "
+                    "button.focus(); button.click(); "
+                    "const kept = document.activeElement === button; "
+                    "button.click(); return kept && document.activeElement === button; })()"
+                ),
+            )
+            require(
                 "desktop-no-horizontal-overflow",
                 devtools.evaluate(
                     "document.documentElement.scrollWidth <= "
@@ -305,6 +318,22 @@ def run_browser_checks(
                 "tablet-drawer-mode",
                 devtools.evaluate(
                     "getComputedStyle(document.getElementById('repository-inspector')).position === 'fixed'"
+                ),
+            )
+            require(
+                "tablet-drawer-focus-entry",
+                devtools.evaluate(
+                    "(() => { window.__tabletOpener = document.querySelector('#repository-tbody .repo-select'); "
+                    "window.__tabletOpener.focus(); window.__tabletOpener.click(); "
+                    "return document.activeElement === document.getElementById('inspector-close'); })()"
+                ),
+            )
+            require(
+                "tablet-drawer-escape-return",
+                devtools.evaluate(
+                    "(() => { document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); "
+                    "return document.activeElement === window.__tabletOpener && "
+                    "document.getElementById('inspector-close').hidden; })()"
                 ),
             )
             require(
