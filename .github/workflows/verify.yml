@@ -35,4 +35,6 @@ jobs:
           path: |
             browser-audit.json
             browser-audit.png
+            pages-desktop.png
+            pages-mobile.png
           if-no-files-found: ignore
