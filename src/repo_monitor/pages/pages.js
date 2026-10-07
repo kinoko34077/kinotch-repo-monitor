@@ -713,11 +713,20 @@ function focusSelectedRepository() {
   ui.search.focus();
 }
 
+function updateSelectedRepositoryMarkers() {
+  for (const row of document.querySelectorAll(".repo-row, .mobile-repo-row")) {
+    row.dataset.selected = String(
+      Boolean(state.selectedRepository)
+        && row.dataset.repoKey === state.selectedRepository,
+    );
+  }
+}
+
 function setSelectedRepository(repositoryKey, sourceElement = null) {
   state.selectedRepository = repositoryKey || "";
   state.lastFocus = sourceElement || document.activeElement;
   writeLocationState();
-  renderRepositories();
+  updateSelectedRepositoryMarkers();
   renderInspector();
   ui.appStatus.textContent = state.selectedRepository
     ? state.selectedRepository + " の詳細を表示しました。"
@@ -728,13 +737,13 @@ function closeInspector({ returnFocus = true } = {}) {
   const previous = state.lastFocus;
   state.selectedRepository = "";
   writeLocationState();
-  renderRepositories();
+  updateSelectedRepositoryMarkers();
   renderInspector();
   if (returnFocus) {
     if (previous && typeof previous.focus === "function" && document.contains(previous)) {
       previous.focus();
     } else {
-      focusSelectedRepository();
+      ui.search.focus();
     }
   }
   ui.appStatus.textContent = "Repository detailを閉じました。";
