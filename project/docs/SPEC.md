@@ -106,6 +106,15 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Dynamic repository/task links must be restricted to HTTPS GitHub navigation and inserted through safe DOM property/text APIs rather than unsanitized HTML.
 - The Pages deployment workflow must use immutable-SHA-pinned Actions. Build requires only repository content read permission; `pages: write` and `id-token: write` are restricted to the deployment job.
 - The generated static artifact contains the public HTML/CSS/JS, `state.json`, and `.nojekyll`.
+- The primary Pages repository overview must be a compact comparison-oriented table/list, not a variable-height long-prose card grid.
+- The overview must keep full Next Action, Active Work, and audit evidence out of each row; those values belong in a contextual Inspector for the selected repository, while the row may show a bounded Next Action preview.
+- Pages must provide read-only Work Status, Repository State, Audit Freshness, search, and deterministic sort controls. Filter/sort state may be reflected in the URL, but it must not mutate persistent repository or devflow state.
+- Search may include hidden detail fields only when a visible `MatchReason` identifies the field/reason that caused the match.
+- Human Portfolio must stay visually absent when entries are empty and all transports are current; any non-current transport must remain visibly warned even when the entry count is zero.
+- Desktop may use a persistent Inspector beside the table. Medium widths must restructure the Inspector into an overlay/drawer, and mobile widths must restructure the repository overview into a compact list rather than merely scaling or stacking the desktop table/cards.
+- Repository selection must support keyboard-visible focus and logical focus continuity. Overlay/drawer opening must move focus into the detail surface; Escape/close must return focus to the originating repository selector when it still exists.
+- Repository selector controls must expose the selected/detail relationship through appropriate native/ARIA state; closed overlay-only controls must not remain keyboard-focusable.
+- Pages verification must include real-browser regression at representative desktop, medium, and mobile widths, including no body-level horizontal overflow, repository-detail interaction/focus continuity, zero/non-current Human Portfolio behavior, hidden-field MatchReason, and load-error/retry recovery.
 
 ## Local HTTP/API surface
 
