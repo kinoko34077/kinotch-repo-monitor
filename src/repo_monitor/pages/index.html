@@ -8,75 +8,122 @@
   <link rel="stylesheet" href="./pages.css">
 </head>
 <body>
-  <header class="site-header">
-    <div>
-      <p class="eyebrow">KINOTCH. REPO MONITOR</p>
-      <h1>Public Development Dashboard</h1>
-      <p class="lede">
-        public GitHub / devflow 情報だけを使う読取専用snapshotです。
-        ローカルGit状態・ローカルpath・Chat URLは含みません。
-      </p>
+  <header class="app-header">
+    <div class="app-title">
+      <h1>Repo Monitor <span>— Public</span></h1>
+      <div class="source-meta" aria-label="snapshot status">
+        <span id="source-status" class="status-badge status-neutral">読込中</span>
+        <span id="generated-at">生成 --</span>
+      </div>
     </div>
-    <a class="repo-link" href="https://github.com/kinoko34077/kinotch-repo-monitor" target="_blank" rel="noopener noreferrer">
-      GitHub
-    </a>
+    <div class="header-actions">
+      <details class="surface-help">
+        <summary>公開範囲</summary>
+        <p>public devflow由来の読取専用snapshotです。localhostのローカル状態・path・Chat URL・認証情報・変更操作は含みません。</p>
+      </details>
+      <a class="text-link" href="https://github.com/kinoko34077/kinotch-repo-monitor" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+    </div>
   </header>
 
-  <main>
-    <section class="source-panel" aria-labelledby="snapshot-title">
-      <div>
-        <p class="eyebrow">SNAPSHOT</p>
-        <h2 id="snapshot-title">公開snapshot</h2>
-      </div>
-      <div class="snapshot-meta">
-        <span id="source-status" class="status-chip">読込中</span>
-        <span id="generated-at">生成時刻 --</span>
-      </div>
-      <p id="source-note" class="source-note">state.json を読み込んでいます。</p>
-    </section>
+  <div id="source-banner" class="source-banner" role="status" aria-live="polite" hidden>
+    <div>
+      <strong id="source-banner-title">Snapshot error</strong>
+      <p id="source-note">state.jsonを読み込めませんでした。</p>
+    </div>
+    <button id="retry-load" type="button" class="secondary-button">再読込</button>
+  </div>
 
-    <section class="toolbar" aria-label="表示フィルタ">
-      <label>
-        <span>Repo検索</span>
-        <input id="search" type="search" autocomplete="off" placeholder="repository / status / next action">
+  <main>
+    <nav id="summary-strip" class="summary-strip" aria-label="Portfolio summary"></nav>
+
+    <section id="filters" class="filter-bar" aria-label="Repository filters">
+      <label class="search-field">
+        <span>検索</span>
+        <input id="search" type="search" autocomplete="off" placeholder="repository / Next / Active / audit">
       </label>
       <label>
-        <span>Work Status</span>
+        <span>Work</span>
         <select id="work-status">
           <option value="">すべて</option>
         </select>
       </label>
+      <label>
+        <span>State</span>
+        <select id="repository-state">
+          <option value="">すべて</option>
+        </select>
+      </label>
+      <label>
+        <span>Audit</span>
+        <select id="audit-freshness">
+          <option value="">すべて</option>
+        </select>
+      </label>
+      <label>
+        <span>並び順</span>
+        <select id="sort-order">
+          <option value="updated-desc">更新 新→旧</option>
+          <option value="updated-asc">更新 旧→新</option>
+          <option value="repo-asc">Repository A→Z</option>
+          <option value="repo-desc">Repository Z→A</option>
+        </select>
+      </label>
+      <button id="clear-filters" type="button" class="text-button" hidden>条件解除</button>
     </section>
 
-    <section class="panel" aria-labelledby="queue-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">HUMAN PORTFOLIO</p>
-          <h2 id="queue-title">Development Queue</h2>
-        </div>
-        <span id="queue-count" class="count-chip">0</span>
+    <section id="human-queue" class="human-queue" aria-labelledby="human-queue-title" hidden>
+      <div class="section-line">
+        <h2 id="human-queue-title">Human Queue</h2>
+        <span id="human-queue-count" class="count-label">0</span>
       </div>
-      <p class="section-note">producer-owned dispositionをそのまま表示します。操作機能はありません。</p>
-      <div id="queue-list" class="queue-list"></div>
-      <p id="queue-empty" class="empty" hidden>公開Human Portfolio entryはありません。</p>
+      <p id="human-queue-warning" class="human-queue-warning" role="status" hidden></p>
+      <div id="human-queue-list" class="human-queue-list" role="list"></div>
     </section>
 
-    <section class="panel" aria-labelledby="repositories-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">DEVFLOW CONTROLS</p>
-          <h2 id="repositories-title">Repositories</h2>
+    <section class="repository-workspace" aria-label="Repository portfolio">
+      <div class="repository-pane">
+        <div class="pane-heading">
+          <h2>Repositories</h2>
+          <span id="repository-count" class="count-label">0</span>
         </div>
-        <span id="repository-count" class="count-chip">0</span>
+
+        <div class="repository-table-wrap">
+          <table id="repository-table">
+            <thead>
+              <tr>
+                <th scope="col">Repository</th>
+                <th scope="col">Work</th>
+                <th scope="col" class="col-state">State</th>
+                <th scope="col">Audit</th>
+                <th scope="col" class="col-updated">Updated</th>
+                <th scope="col">Next</th>
+                <th scope="col"><span class="sr-only">操作</span></th>
+              </tr>
+            </thead>
+            <tbody id="repository-tbody"></tbody>
+          </table>
+        </div>
+
+        <div id="repository-mobile-list" class="repository-mobile-list"></div>
+        <div id="repository-empty" class="empty-state" hidden>
+          <strong>条件に一致するrepositoryはありません。</strong>
+          <button id="empty-clear-filters" type="button" class="text-button">条件解除</button>
+        </div>
       </div>
-      <div id="repository-list" class="repository-list"></div>
-      <p id="repository-empty" class="empty" hidden>条件に一致するrepositoryはありません。</p>
+
+      <aside id="repository-inspector" class="repository-inspector" aria-labelledby="inspector-title" data-open="false">
+        <div class="inspector-toolbar">
+          <h2 id="inspector-title">Repository detail</h2>
+          <button id="inspector-close" type="button" class="icon-button" aria-label="詳細を閉じる" title="閉じる" hidden>×</button>
+        </div>
+        <div id="inspector-content" class="inspector-content">
+          <p class="inspector-placeholder">一覧からrepositoryを選択すると、Next Action・Active Work・audit detailを表示します。</p>
+        </div>
+      </aside>
     </section>
+
+    <p id="app-status" class="sr-only" role="status" aria-live="polite"></p>
   </main>
-
-  <footer>
-    GitHub Pages read-only surface · localhost版とは別surface
-  </footer>
 
   <script src="./pages.js" defer></script>
 </body>
