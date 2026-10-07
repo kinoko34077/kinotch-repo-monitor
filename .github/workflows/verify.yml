@@ -20,6 +20,7 @@ jobs:
       - run: cmd /c _run_python.cmd tools\benchmark_refresh.py
       - run: cmd /c _run_python.cmd tools\benchmark_cached_state.py
       - run: cmd /c _run_python.cmd tools\browser_interaction_check.py
+      - run: cmd /c _run_python.cmd tools\pages_browser_check.py --desktop-screenshot pages-desktop.png --mobile-screenshot pages-mobile.png
       - run: cmd /c _run_python.cmd tools\render_check.py --require-browser --screenshot web-render.png
       - run: cmd /c _run_python.cmd tools\browser_audit.py --demo --output browser-audit.json --screenshot browser-audit.png
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
