@@ -275,6 +275,15 @@ function workCounts(repos) {
   return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+function updateSummaryPressedState() {
+  for (const button of ui.summaryStrip.querySelectorAll("[data-work-status]")) {
+    button.setAttribute(
+      "aria-pressed",
+      String(state.workStatus === button.dataset.workStatus),
+    );
+  }
+}
+
 function renderSummary() {
   const repos = state.payload && Array.isArray(state.payload.repositories)
     ? state.payload.repositories
@@ -292,7 +301,7 @@ function renderSummary() {
       state.workStatus = state.workStatus === status ? "" : status;
       ui.workStatus.value = state.workStatus;
       writeLocationState();
-      renderSummary();
+      updateSummaryPressedState();
       renderRepositories();
       updateClearVisibility();
     });
@@ -305,6 +314,7 @@ function renderSummary() {
       (repo) => repo.audit_freshness && repo.audit_freshness !== "CURRENT",
     ).length),
   );
+  updateSummaryPressedState();
 }
 
 function transportLabel(portfolio) {
@@ -340,6 +350,7 @@ function renderHumanQueue() {
 
   for (const { portfolio, entry } of entries) {
     const row = element("div", "human-entry");
+    row.setAttribute("role", "listitem");
     const disposition = element(
       "span",
       "disposition-badge",
@@ -477,6 +488,11 @@ function repositorySelector(repo, className = "repo-select") {
   button.type = "button";
   button.dataset.repoKey = repoKey(repo);
   button.setAttribute("aria-label", (repoKey(repo) || "repository") + " の詳細");
+  button.setAttribute("aria-controls", "repository-inspector");
+  button.setAttribute(
+    "aria-expanded",
+    String(state.selectedRepository === repoKey(repo)),
+  );
   button.addEventListener("click", () => setSelectedRepository(repoKey(repo), button));
   return button;
 }
@@ -635,6 +651,7 @@ function renderInspector() {
 
   if (!repo) {
     ui.repositoryInspector.dataset.open = "false";
+    ui.inspectorClose.hidden = true;
     ui.inspectorTitle.textContent = "Repository detail";
     ui.inspectorContent.append(element(
       "p",
@@ -645,6 +662,7 @@ function renderInspector() {
   }
 
   ui.repositoryInspector.dataset.open = "true";
+  ui.inspectorClose.hidden = false;
   ui.inspectorTitle.textContent = "Repository detail";
 
   const repoLine = element("div", "inspector-repo-line");
@@ -720,6 +738,15 @@ function updateSelectedRepositoryMarkers() {
         && row.dataset.repoKey === state.selectedRepository,
     );
   }
+  for (const button of document.querySelectorAll(".repo-select[data-repo-key]")) {
+    button.setAttribute(
+      "aria-expanded",
+      String(
+        Boolean(state.selectedRepository)
+          && button.dataset.repoKey === state.selectedRepository,
+      ),
+    );
+  }
 }
 
 function setSelectedRepository(repositoryKey, sourceElement = null) {
@@ -728,6 +755,9 @@ function setSelectedRepository(repositoryKey, sourceElement = null) {
   writeLocationState();
   updateSelectedRepositoryMarkers();
   renderInspector();
+  if (window.matchMedia("(max-width: 1279px)").matches) {
+    ui.inspectorClose.focus();
+  }
   ui.appStatus.textContent = state.selectedRepository
     ? state.selectedRepository + " の詳細を表示しました。"
     : "詳細を閉じました。";
@@ -772,7 +802,7 @@ function clearFilters() {
   ui.auditFreshness.value = "";
   ui.sortOrder.value = DEFAULT_SORT;
   writeLocationState();
-  renderSummary();
+  updateSummaryPressedState();
   renderRepositories();
   updateClearVisibility();
   ui.search.focus();
@@ -856,7 +886,7 @@ ui.search.addEventListener("input", () => {
 ui.workStatus.addEventListener("change", () => {
   state.workStatus = ui.workStatus.value;
   writeLocationState();
-  renderSummary();
+  updateSummaryPressedState();
   renderRepositories();
   updateClearVisibility();
 });
