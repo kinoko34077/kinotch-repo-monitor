@@ -641,6 +641,52 @@ function renderInspectorHumanPortfolio(repo, container) {
   container.append(section);
 }
 
+function renderInspectorMachineObservation(repo) {
+  const section = element("section", "inspector-section inspector-machine-observation");
+  section.append(element("h3", "", "機械側：確認可能な作業・対応（部分）"));
+  const scope = element("p", "inspector-work-note",
+    "devflow由来のHuman Portfolio。全TASK一覧ではなく、REVIEW/BLOCKED等が省略される場合があります。");
+  section.append(scope);
+  const portfolio = portfolioForRepository(repo.repository_full_name || "");
+  if (!portfolio) {
+    section.append(element("p", "inspector-prose", "未取得。作業が0件という意味ではありません。"));
+    return section;
+  }
+  const isCurrent = portfolio.transport_status === "CURRENT"
+    && !Boolean(state.payload?.source?.stale);
+  section.append(element(
+    "p", "inspector-work-source" + (isCurrent ? "" : " inspector-work-warning"),
+    isCurrent
+      ? "取得元：devflow機械投影 · CURRENT"
+      : "取得元：devflow機械投影 · 前回値／未検証 (" + transportLabel(portfolio) + ")",
+  ));
+  const entries = (Array.isArray(portfolio.entries) ? portfolio.entries : [])
+    .filter((entry) => entry.source_kind === "REPOSITORY_PROJECTION");
+  if (!entries.length) {
+    section.append(element(
+      "p", "inspector-prose",
+      "表示対象の機械キュー項目なし。未分類やキュー対象外のTASKは残り得ます。",
+    ));
+    return section;
+  }
+  const list = element("div", "inspector-machine-items");
+  for (const entry of entries) {
+    const label = (DISPOSITION_LABELS[entry.disposition] || entry.disposition || "不明")
+      + " · " + (entry.task_ref || "--");
+    const url = safeUrl(entry.entry_ref, "/kinoko34077/");
+    const row = url ? element("a", "inspector-machine-task", label)
+      : element("span", "inspector-machine-task", label);
+    if (url) {
+      row.href = url;
+      row.target = "_blank";
+      row.rel = "noopener noreferrer";
+    }
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
 function renderInspector() {
   const repos = state.payload && Array.isArray(state.payload.repositories)
     ? state.payload.repositories
@@ -680,10 +726,15 @@ function renderInspector() {
   );
   ui.inspectorContent.append(badges);
 
-  ui.inspectorContent.append(
+  const comparison = element("section", "inspector-work-comparison");
+  const manual = element("div", "inspector-work-column");
+  manual.append(
+    element("h3", "inspector-work-title", "従来側：手動Control"),
     inspectorSection("次のアクション", repo.next_action),
     inspectorSection("現在の作業", repo.active_work),
   );
+  comparison.append(manual, renderInspectorMachineObservation(repo));
+  ui.inspectorContent.append(comparison);
 
   renderInspectorHumanPortfolio(repo, ui.inspectorContent);
 
