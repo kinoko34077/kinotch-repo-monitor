@@ -351,7 +351,8 @@ def run_browser_checks(
                     "document.querySelectorAll('#repository-tbody .repo-row').length === 44",
                 )
                 devtools.evaluate(
-                    "document.querySelector('#repository-tbody .repo-select').click()"
+                    "document.querySelector('#repository-tbody "
+                    ".repo-select[data-repo-key=\"kinoko34077/demo-00\"]').click()"
                 )
                 wait_until(
                     devtools,
