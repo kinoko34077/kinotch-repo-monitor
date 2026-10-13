@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, Mapping
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
@@ -805,18 +807,49 @@ def _next_link(value: str) -> str | None:
     return None
 
 
+def _is_allowed_devflow_issues_page(url: str) -> bool:
+    """Keep authenticated pagination on the one public devflow Issues endpoint."""
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.github.com"
+        or parsed.path != "/repos/kinoko34077/devflow/issues"
+        or parsed.fragment
+    ):
+        return False
+    values = parse_qs(parsed.query, keep_blank_values=True)
+    if not {"state", "per_page"} <= set(values) or set(values) - {
+        "state", "per_page", "page"
+    }:
+        return False
+    if values["state"] != ["open"] or values["per_page"] != ["100"]:
+        return False
+    if "page" in values and (
+        len(values["page"]) != 1
+        or not values["page"][0].isdigit()
+        or int(values["page"][0]) < 1
+    ):
+        return False
+    return True
+
+
 def _fetch_public_issues() -> list[Mapping[str, object]]:
     url: str | None = DEVFLOW_ISSUES_URL
     issues: list[Mapping[str, object]] = []
+    # Only the Pages Action explicitly provides this ephemeral, read-only
+    # GitHub job token. Localhost usage remains public/anonymous by default.
+    token = os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
     while url is not None:
-        request = Request(
-            url,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "KiNoTchRepoMonitor/0.3",
-            },
-        )
+        if not _is_allowed_devflow_issues_page(url):
+            raise ValueError("devflow Issues pagination URL is outside the trusted endpoint")
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "KiNoTchRepoMonitor/0.3",
+        }
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        request = Request(url, headers=headers)
         with urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read().decode("utf-8"))
             next_url = _next_link(response.headers.get("Link", ""))
