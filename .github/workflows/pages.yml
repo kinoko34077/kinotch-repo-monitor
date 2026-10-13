@@ -30,6 +30,7 @@ jobs:
       - name: Build public snapshot and static site
         env:
           PYTHONPATH: src
+          REPO_MONITOR_PUBLIC_READ_TOKEN: ${{ github.token }}
         run: python tools/build_pages.py --output _site
       - name: Run Pages contract tests
         env:
