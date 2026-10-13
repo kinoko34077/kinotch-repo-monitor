@@ -80,6 +80,22 @@ class PagesUiRedesignContractTests(unittest.TestCase):
         self.assertNotIn(".repository-card", self.css)
         self.assertNotIn(".queue-card", self.css)
 
+    def test_m3_manual_machine_parallel_inspector_is_explicitly_partial(self):
+        self.assertIn("inspector-work-comparison", self.js)
+        self.assertIn("従来側：手動Control", self.js)
+        self.assertIn("機械側：確認可能な作業・対応（部分）", self.js)
+        self.assertIn("renderInspectorMachineObservation", self.js)
+        self.assertIn('entry.source_kind === "REPOSITORY_PROJECTION"', self.js)
+        self.assertIn('portfolio.transport_status === "CURRENT"', self.js)
+        self.assertIn("未取得。作業が0件という意味ではありません。", self.js)
+        self.assertIn("全TASK一覧ではなく", self.js)
+        self.assertIn("表示対象の機械キュー項目なし", self.js)
+        self.assertIn("inspector-work-comparison {", self.css)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", self.css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", self.css)
+        self.assertNotIn("get_repository_work_view(", self.js)
+        self.assertNotIn("innerHTML", self.js)
+
     def test_public_security_boundary_remains_read_only(self):
         self.assertNotIn("innerHTML", self.js)
         self.assertNotIn('method: "POST"', self.js)

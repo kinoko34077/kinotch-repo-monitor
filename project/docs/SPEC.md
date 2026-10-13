@@ -95,6 +95,31 @@ Show local Git/filesystem activity for many repositories in a responsive localho
 - Search/filtering must not mutate persistent state.
 - Repository data is inserted with text/property DOM APIs, never unsanitized `innerHTML`.
 
+### M3 dual-read Inspector pilot (Issue #64; publication-gated)
+
+During devflow M3 migration the Pages Inspector may **juxtapose** traditional
+Control `Active Work` / `Next Action` and the machine-derived,
+already-validated read-only Human Portfolio. This is a **partial machine
+attention/active queue**, not the complete M1 all-state TASK list: REVIEW,
+BLOCKED, open-DONE and unclassified work may be absent. This pilot must never
+infer full task completeness, automatic runtime claim or local-task authority
+retirement from queue entries, from a current transport, or from zero entries.
+
+- Label legacy and machine panels explicitly and retain Human Portfolio's
+  distinct full operator queue rather than hiding its reconciliation entries.
+- If machine transport is absent/noncurrent or the Pages snapshot is stale,
+  make that limitation visible. A missing or empty queue is not proof of no
+  outstanding work.
+- Reuse the existing trusted parser/Human Portfolio source exactly; no
+  independent Issue classifier or broad public browser/API calls.
+- Render user-facing values through safe DOM property/text APIs and approved
+  HTTPS GitHub navigation links; keep the mobile Inspector readable.
+- Keep manual Control as operational fallback until an independently admitted
+  per-Consumer M3.1 cohort; do not mutate sources in Pages.
+- **Publishing Pages remains separately Human-gated**: a draft PR and passing
+  checks do not authorize merge/deploy. This section is proposed implementation
+  contract, not an assertion that it is on current published main.
+
 ### Public GitHub Pages surface
 
 - GitHub Pages is a separate public, read-only static surface. It does not change or expose the loopback-only localhost runtime.
