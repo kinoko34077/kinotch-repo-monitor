@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import threading
 import time
 import unittest
@@ -526,6 +527,92 @@ class DevflowStateTests(unittest.TestCase):
 
         self.assertEqual([item["number"] for item in issues], [59, 60])
         self.assertEqual(requested[1], next_url)
+
+    def test_public_issue_fetch_uses_explicit_actions_token_only_for_devflow(self):
+        class FakeResponse:
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"[]"
+
+        requests = []
+
+        def fake_urlopen(request, timeout=3.0):
+            requests.append(request)
+            return FakeResponse()
+
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "test-ephemeral-token"}):
+            with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
+                self.assertEqual(_fetch_public_issues(), [])
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].get_header("Authorization"), "Bearer test-ephemeral-token")
+        self.assertEqual(requests[0].host, "api.github.com")
+        self.assertNotIn("test-ephemeral-token", requests[0].full_url)
+
+    def test_public_issue_fetch_rejects_crossorigin_and_crosspath_next_links(self):
+        class FakeResponse:
+            def __init__(self, next_link):
+                self.headers = {"Link": f'<{next_link}>; rel="next"'}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"[]"
+
+        disallowed = [
+            "https://evil.example/steal?state=open&per_page=100&page=2",
+            "http://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2",
+            "https://api.github.com/repos/kinoko34077/private/issues?state=open&per_page=100&page=2",
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=closed&per_page=100&page=2",
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=0",
+        ]
+        for url in disallowed:
+            with self.subTest(url=url):
+                requests = []
+
+                def fake_urlopen(request, timeout=3.0):
+                    requests.append(request)
+                    return FakeResponse(url)
+
+                with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "test-token"}):
+                    with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
+                        with self.assertRaisesRegex(ValueError, "trusted endpoint"):
+                            _fetch_public_issues()
+                self.assertEqual(len(requests), 1)
+
+    def test_public_issue_fetch_remains_anonymous_without_workflow_token(self):
+        class FakeResponse:
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"[]"
+
+        requested = []
+
+        def fake_urlopen(request, timeout=3.0):
+            requested.append(request)
+            return FakeResponse()
+
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": ""}):
+            with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
+                _fetch_public_issues()
+        self.assertIsNone(requested[0].get_header("Authorization"))
 
     def test_provider_honors_rate_limit_reset_before_retrying(self):
         calls = [0]
