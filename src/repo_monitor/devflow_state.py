@@ -85,6 +85,7 @@ class DevflowRepoState:
     last_deep_audit_at: str = ""
     audit_freshness: str = ""
     repository_full_name: str = ""
+    all_state_tasks: dict[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -105,6 +106,15 @@ class DevflowRepoState:
             "audit_evidence": self.audit_evidence,
             "last_deep_audit_at": self.last_deep_audit_at,
             "audit_freshness": self.audit_freshness,
+            "all_state_tasks": {
+                "status": self.all_state_tasks["status"],
+                "total": self.all_state_tasks["total"],
+                "records": [
+                    dict(item) for item in self.all_state_tasks["records"]
+                ],
+            } if self.all_state_tasks is not None else {
+                "status": "UNKNOWN", "total": None, "records": [],
+            },
         }
 
 
@@ -703,6 +713,98 @@ def _derived_control_transport_trusted(
     return True
 
 
+def _read_all_state_task_preview(
+    body: str, repository: str, *, now: float
+) -> dict[str, object]:
+    """Consume the shared bounded M2 task list, never classify raw Issues.
+
+    Invalid/missing/stale cache is shown as UNKNOWN/INVALID/STALE, never as an
+    empty complete task list. Validation is transport-only and read-only.
+    """
+    empty = {"status": "UNKNOWN", "total": None, "records": []}
+    try:
+        payload = _projection_transport_payload(body)
+        if payload is None or "all_state_tasks" not in payload:
+            return empty
+        if payload.get("schema_version") != PROJECTION_SCHEMA_VERSION:
+            raise ValueError("wrong projection schema")
+        if payload.get("repository") != repository:
+            raise ValueError("cross-repository all-state projection")
+        generation = payload.get("generation_id")
+        if not isinstance(generation, str) or _SHA256_RE.fullmatch(generation) is None:
+            raise ValueError("invalid all-state generation")
+        if generation != _canonical_projection_generation_id(payload):
+            raise ValueError("tampered all-state generation")
+        generated = _rfc3339_epoch(payload.get("generated_at"), "all-state generated")
+        valid_until = _rfc3339_epoch(payload.get("valid_until"), "all-state valid_until")
+        if valid_until - generated != PROJECTION_VALIDITY_SECONDS:
+            raise ValueError("noncanonical all-state validity")
+        if now < generated:
+            return empty
+        if now > valid_until:
+            return {"status": "STALE", "total": None, "records": []}
+        source = payload.get("source")
+        trust = payload.get("control_trust")
+        coverage = payload.get("coverage")
+        counts = payload.get("counts")
+        if not all(isinstance(item, Mapping) for item in (source, trust, coverage, counts)):
+            raise ValueError("missing all-state provenance")
+        if (trust.get("status"), trust.get("freshness"), trust.get("source")) != (
+            "VERIFIED", "CURRENT", PROJECTION_TRUST_SOURCE
+        ):
+            return empty
+        if (source.get("status"), source.get("freshness")) != ("AVAILABLE", "CURRENT"):
+            return {"status": "UNAVAILABLE", "total": None, "records": []}
+        state = payload["all_state_tasks"]
+        if not isinstance(state, Mapping) or set(state) != {"status", "total", "records"}:
+            raise ValueError("invalid all-state schema")
+        status, total, records = state["status"], state["total"], state["records"]
+        if status not in {"COMPLETE", "TRUNCATED", "INCOMPLETE", "UNAVAILABLE"}:
+            raise ValueError("unknown all-state status")
+        if type(total) is not int or total < 0 or total != counts.get("machine_tasks"):
+            raise ValueError("all-state task count mismatch")
+        if not isinstance(records, list) or len(records) > 20:
+            raise ValueError("all-state list not bounded")
+        selected: list[dict[str, object]] = []
+        seen: set[int] = set()
+        for item in records:
+            if not isinstance(item, Mapping):
+                raise ValueError("invalid all-state task")
+            number = item.get("issue_number")
+            url = item.get("url")
+            work_status = item.get("work_status")
+            if type(number) is not int or number < 1 or not isinstance(url, str):
+                raise ValueError("invalid all-state task identity")
+            match = _ENTRY_REF_RE.fullmatch(url)
+            if (
+                match is None
+                or match.group(1) + "/" + match.group(2) != repository
+                or int(match.group(3)) != number
+                or item.get("source_kind") != "MACHINE"
+                or item.get("record_role") != "TASK"
+                or not isinstance(work_status, str) or not work_status
+                or number in seen
+            ):
+                raise ValueError("untrusted all-state record")
+            seen.add(number)
+            selected.append({
+                "issue_number": number, "url": url,
+                "work_status": work_status,
+                "title": str(item.get("title") or ""),
+            })
+        if status == "COMPLETE" and (
+            len(selected) != total or coverage.get("status") != "COMPLETE"
+        ):
+            raise ValueError("false complete all-state projection")
+        if status == "TRUNCATED" and (total <= 20 or len(selected) != 20):
+            raise ValueError("false truncated all-state projection")
+        if status == "UNAVAILABLE" and selected:
+            raise ValueError("unavailable all-state has tasks")
+        return {"status": status, "total": total, "records": selected}
+    except (ValueError, TypeError, KeyError):
+        return {"status": "INVALID", "total": None, "records": []}
+
+
 def _is_trusted_control_issue(
     issue: Mapping[str, object],
     body: str,
@@ -777,6 +879,9 @@ def _parse_control_data(
             audit_evidence=_clean_value(parts.get("audit evidence", "")),
             last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
             audit_freshness=_audit_freshness_projection(issue),
+            all_state_tasks=_read_all_state_task_preview(
+                body_text, repository_full_name, now=observed_now
+            ) if repository_full_name else None,
         )
         if repository_full_name:
             portfolio = _validate_human_portfolio(
