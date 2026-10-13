@@ -105,6 +105,23 @@ def fixture_payload(*, stale_portfolio: bool = False, machine_case: str | None =
     elif machine_case == "stale":
         portfolios[0]["transport_status"] = "STALE"
         portfolios[0]["current"] = False
+    elif machine_case == "all_state":
+        repositories[0]["all_state_tasks"] = {
+            "status": "COMPLETE", "total": 2,
+            "records": [
+                {
+                    "issue_number": number,
+                    "url": f"https://github.com/kinoko34077/demo-00/issues/{number}",
+                    "work_status": work_status,
+                    "title": f"Task {number}",
+                }
+                for number, work_status in ((64, "AWAITING_REVIEW"), (65, "BLOCKED"))
+            ],
+        }
+    elif machine_case == "all_state_zero":
+        repositories[0]["all_state_tasks"] = {
+            "status": "COMPLETE", "total": 0, "records": [],
+        }
     elif machine_case == "populated":
         portfolios[0]["entries"] = [
             {
@@ -343,7 +360,7 @@ def run_browser_checks(
             # Assert the *rendered* machine Inspector rather than string
             # presence in JS/CSS source. Preserve the existing public data
             # contract and restore default fixtures before tablet/mobile tests.
-            for scenario in ("absent", "stale", "empty", "populated"):
+            for scenario in ("absent", "stale", "empty", "populated", "all_state", "all_state_zero"):
                 write_site(state_path.parent, machine_case=scenario)
                 devtools.call("Page.reload", {"ignoreCache": True})
                 wait_until(
@@ -395,6 +412,30 @@ def run_browser_checks(
                             "document.querySelector('.inspector-machine-observation')"
                             ".textContent.includes('未分類やキュー対象外のTASKは残り得ます') && "
                             "!document.querySelector('.inspector-machine-items')"
+                        ),
+                    )
+                elif scenario == "all_state":
+                    require(
+                        "dual-read-all-state-review-and-blocked",
+                        devtools.evaluate(
+                            "(() => { const section = document.querySelector('.inspector-allstate-preview'); "
+                            "const links = section.querySelectorAll('.inspector-machine-task'); "
+                            "return section.textContent.includes('全状態の読取完了') && "
+                            "links.length === 2 && section.textContent.includes('AWAITING_REVIEW') && "
+                            "section.textContent.includes('BLOCKED') && "
+                            "links[0].href === 'https://github.com/kinoko34077/demo-00/issues/64' && "
+                            "!document.querySelector('.inspector-allstate-preview')"
+                            ".textContent.includes('0件（取得元'); })()"
+                        ),
+                    )
+                elif scenario == "all_state_zero":
+                    require(
+                        "dual-read-complete-zero-distinct-from-unknown",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-allstate-preview')"
+                            ".textContent.includes('開いているTASKは0件（取得元の完全性確認済み）') && "
+                            "!document.querySelector('.inspector-allstate-preview')"
+                            ".textContent.includes('旧キャッシュ')"
                         ),
                     )
                 elif scenario == "populated":
