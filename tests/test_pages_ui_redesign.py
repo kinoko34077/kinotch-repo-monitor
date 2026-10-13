@@ -96,6 +96,17 @@ class PagesUiRedesignContractTests(unittest.TestCase):
         self.assertNotIn("get_repository_work_view(", self.js)
         self.assertNotIn("innerHTML", self.js)
 
+    def test_all_state_task_view_preserves_manual_fallback_and_unknown(self):
+        self.assertIn("renderInspectorAllStatePreview", self.js)
+        self.assertIn("全状態TASK", self.js)
+        self.assertIn("全状態の読取完了", self.js)
+        self.assertIn("20件までの部分表示", self.js)
+        self.assertIn("未取得または旧キャッシュ", self.js)
+        self.assertIn("開いているTASKは0件（取得元の完全性確認済み）", self.js)
+        self.assertIn("従来Controlも参照してください", self.js)
+        self.assertIn("renderInspectorMachineObservation", self.js)
+        self.assertNotIn("innerHTML", self.js)
+
     def test_public_security_boundary_remains_read_only(self):
         self.assertNotIn("innerHTML", self.js)
         self.assertNotIn('method: "POST"', self.js)
