@@ -176,7 +176,7 @@ def allstate_control_body(*, status="COMPLETE", work_states=("AWAITING_REVIEW", 
     payload["generation_id"] = "sha256:" + hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     ).hexdigest()
-    return f"\\n{start}\\n{json.dumps(payload)}\\n{end}", payload
+    return f"\n{start}\n{json.dumps(payload)}\n{end}", payload
 
 
 class DevflowStateTests(unittest.TestCase):
@@ -271,9 +271,9 @@ class DevflowStateTests(unittest.TestCase):
                     json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
                 ).hexdigest()
                 body = (
-                    "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\\n"
+                    "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\n"
                     + json.dumps(altered)
-                    + "\\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+                    + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
                 )
                 result = _read_all_state_task_preview(
                     body, "kinoko34077/example-repo", now=now
