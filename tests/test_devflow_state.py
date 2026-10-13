@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from datetime import datetime
 import threading
 import time
 import unittest
@@ -8,7 +9,7 @@ from email.message import Message
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from repo_monitor.devflow_state import DevflowStateProvider, _fetch_public_issues, parse_control_issues
+from repo_monitor.devflow_state import DevflowStateProvider, _fetch_public_issues, _read_all_state_task_preview, parse_control_issues
 
 
 ISSUE_BODY = """## Repository
@@ -149,6 +150,35 @@ def projection_transport(
     )
 
 
+def allstate_control_body(*, status="COMPLETE", work_states=("AWAITING_REVIEW", "BLOCKED")):
+    marker = projection_transport()
+    start = "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->"
+    end = "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+    raw = marker.split(start, 1)[1].split(end, 1)[0]
+    payload = json.loads(raw)
+    records = [
+        {
+            "issue_number": i, "title": f"Task {i}",
+            "url": f"https://github.com/kinoko34077/example-repo/issues/{i}",
+            "source_kind": "MACHINE", "record_role": "TASK",
+            "type": "FEATURE", "work_status": work,
+            "attention_disposition": None,
+        }
+        for i, work in enumerate(work_states, 1)
+    ]
+    total = len(records)
+    payload["counts"].update(open_issues=total, machine_records=total, machine_tasks=total)
+    payload["coverage"]["active_work_evidence"] = "MACHINE_TASK_EVIDENCE"
+    payload["all_state_tasks"] = {"status": status, "total": total, "records": records}
+    payload["generation_id"] = ""
+    material = dict(payload)
+    material.pop("generation_id")
+    payload["generation_id"] = "sha256:" + hashlib.sha256(
+        json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+    return f"\\n{start}\\n{json.dumps(payload)}\\n{end}", payload
+
+
 class DevflowStateTests(unittest.TestCase):
     def test_parse_control_issues_extracts_repository_workflow_fields(self):
         issues = issue_payload() + [
@@ -181,6 +211,74 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(state.issue_number, 59)
         self.assertEqual(state.issue_url, "https://github.com/kinoko34077/devflow/issues/59")
         self.assertEqual(state.updated_at, "2026-09-26T03:00:00Z")
+
+    def test_all_state_preview_includes_review_blocked_and_serializes(self):
+        body, _ = allstate_control_body()
+        now = datetime.fromisoformat("2026-10-04T07:00:00+00:00").timestamp()
+        preview = _read_all_state_task_preview(
+            ISSUE_BODY + body, "kinoko34077/example-repo", now=now
+        )
+        self.assertEqual(preview["status"], "COMPLETE")
+        self.assertEqual(preview["total"], 2)
+        self.assertEqual(
+            [item["work_status"] for item in preview["records"]],
+            ["AWAITING_REVIEW", "BLOCKED"],
+        )
+        issue = {**issue_payload()[0], "body": ISSUE_BODY + body}
+        state = parse_control_issues([issue], now=now)["example-repo"]
+        self.assertEqual(state.as_dict()["all_state_tasks"], preview)
+
+    def test_all_state_preview_missing_stale_tampered_and_wrong_repo_fail_closed(self):
+        now = datetime.fromisoformat("2026-10-04T07:00:00+00:00").timestamp()
+        missing = _read_all_state_task_preview(
+            ISSUE_BODY + projection_transport(),
+            "kinoko34077/example-repo", now=now,
+        )
+        self.assertEqual(missing["status"], "UNKNOWN")
+        self.assertIsNone(missing["total"])
+        valid, _ = allstate_control_body()
+        self.assertEqual(_read_all_state_task_preview(
+            valid, "kinoko34077/example-repo", now=now + 2 * 86400
+        )["status"], "STALE")
+        altered = valid.replace("AWAITING_REVIEW", "IMPLEMENTING")
+        self.assertEqual(_read_all_state_task_preview(
+            altered, "kinoko34077/example-repo", now=now
+        )["status"], "INVALID")
+        self.assertEqual(_read_all_state_task_preview(
+            valid, "kinoko34077/other-repo", now=now
+        )["status"], "INVALID")
+
+    def test_all_state_preview_bad_task_url_and_false_completeness_rejected(self):
+        now = datetime.fromisoformat("2026-10-04T07:00:00+00:00").timestamp()
+        original, payload = allstate_control_body()
+        self.assertEqual(len(original) > 0, True)
+        for change in ("javascript", "duplicate", "count"):
+            with self.subTest(change=change):
+                altered = json.loads(json.dumps(payload))
+                if change == "javascript":
+                    altered["all_state_tasks"]["records"][0]["url"] = "javascript:alert(1)"
+                elif change == "duplicate":
+                    altered["all_state_tasks"]["records"][1]["issue_number"] = 1
+                    altered["all_state_tasks"]["records"][1]["url"] = (
+                        "https://github.com/kinoko34077/example-repo/issues/1"
+                    )
+                else:
+                    altered["all_state_tasks"]["total"] = 3
+                altered["generation_id"] = ""
+                material = dict(altered)
+                material.pop("generation_id")
+                altered["generation_id"] = "sha256:" + hashlib.sha256(
+                    json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+                ).hexdigest()
+                body = (
+                    "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\\n"
+                    + json.dumps(altered)
+                    + "\\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+                )
+                result = _read_all_state_task_preview(
+                    body, "kinoko34077/example-repo", now=now
+                )
+                self.assertEqual(result["status"], "INVALID")
 
     def test_direct_trusted_control_rejects_title_body_repository_identity_mismatch(self):
         issue = {
