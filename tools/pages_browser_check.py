@@ -27,7 +27,7 @@ def require(name: str, value) -> None:
     print(f"pages-browser {name}=ok")
 
 
-def fixture_payload(*, stale_portfolio: bool = False) -> dict[str, object]:
+def fixture_payload(*, stale_portfolio: bool = False, machine_case: str | None = None) -> dict[str, object]:
     statuses = [
         "AUDITED",
         "BLOCKED",
@@ -99,6 +99,36 @@ def fixture_payload(*, stale_portfolio: bool = False) -> dict[str, object]:
                 "entries": [],
             }
         )
+    # Scenario fixtures exercise the actual browser DOM; no application stub.
+    if machine_case == "absent":
+        portfolios.pop(0)
+    elif machine_case == "stale":
+        portfolios[0]["transport_status"] = "STALE"
+        portfolios[0]["current"] = False
+    elif machine_case == "populated":
+        portfolios[0]["entries"] = [
+            {
+                "source_kind": "REPOSITORY_PROJECTION",
+                "disposition": "WAIT_EXTERNAL",
+                "task_ref": "kinoko34077/demo-00#64",
+                "entry_ref": "https://github.com/kinoko34077/demo-00/issues/64",
+            },
+            {
+                "source_kind": "REPOSITORY_PROJECTION",
+                "disposition": "NEEDS_EVIDENCE",
+                "task_ref": "untrusted URL",
+                "entry_ref": "javascript:alert(1)",
+            },
+            {
+                "source_kind": "CONTROL_RECONCILIATION",
+                "disposition": "NEEDS_HUMAN",
+                "task_ref": "not a projected TASK",
+                "entry_ref": "https://github.com/kinoko34077/demo-00/issues/98",
+            },
+        ]
+    elif machine_case not in (None, "empty"):
+        raise ValueError(f"unknown machine fixture: {machine_case}")
+
     return {
         "schema_version": "repo-monitor-pages.v1",
         "generated_at": "2026-10-07T07:09:15Z",
@@ -113,13 +143,18 @@ def fixture_payload(*, stale_portfolio: bool = False) -> dict[str, object]:
     }
 
 
-def write_site(site: Path, *, stale_portfolio: bool = False) -> Path:
+def write_site(
+    site: Path, *, stale_portfolio: bool = False, machine_case: str | None = None
+) -> Path:
     site.mkdir(parents=True, exist_ok=True)
     for name in ("index.html", "pages.css", "pages.js"):
         shutil.copy2(PAGES_ROOT / name, site / name)
     state_path = site / "state.json"
     state_path.write_text(
-        json.dumps(fixture_payload(stale_portfolio=stale_portfolio), ensure_ascii=False),
+        json.dumps(
+            fixture_payload(stale_portfolio=stale_portfolio, machine_case=machine_case),
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     return state_path
@@ -303,6 +338,90 @@ def run_browser_checks(
                 "input.dispatchEvent(new Event('input', {bubbles:true})); "
                 "return true; "
                 "})()"
+            )
+
+            # Assert the *rendered* machine Inspector rather than string
+            # presence in JS/CSS source. Preserve the existing public data
+            # contract and restore default fixtures before tablet/mobile tests.
+            for scenario in ("absent", "stale", "empty", "populated"):
+                write_site(state_path.parent, machine_case=scenario)
+                devtools.call("Page.reload", {"ignoreCache": True})
+                wait_until(
+                    devtools,
+                    "document.querySelectorAll('#repository-tbody .repo-row').length === 44",
+                )
+                devtools.evaluate(
+                    "document.querySelector('#repository-tbody .repo-select').click()"
+                )
+                wait_until(
+                    devtools,
+                    "document.querySelector('.inspector-machine-observation') !== null",
+                )
+                require(
+                    f"dual-read-{scenario}-manual-retained",
+                    devtools.evaluate(
+                        "document.querySelector('.inspector-work-column').textContent"
+                        ".includes('従来側：手動Control') && "
+                        "document.querySelector('.inspector-work-column').textContent"
+                        ".includes('次のアクション')"
+                    ),
+                )
+                if scenario == "absent":
+                    require(
+                        "dual-read-missing-not-zero",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-machine-observation')"
+                            ".textContent.includes('未取得。作業が0件という意味ではありません。') && "
+                            "!document.querySelector('.inspector-machine-items')"
+                        ),
+                    )
+                elif scenario == "stale":
+                    require(
+                        "dual-read-stale-warning",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-work-warning')"
+                            ".textContent.includes('前回値／未検証') && "
+                            "document.querySelector('.inspector-machine-observation')"
+                            ".textContent.includes('表示対象の機械キュー項目なし')"
+                        ),
+                    )
+                elif scenario == "empty":
+                    require(
+                        "dual-read-empty-partial-not-complete",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-work-source')"
+                            ".textContent.includes('CURRENT') && "
+                            "document.querySelector('.inspector-machine-observation')"
+                            ".textContent.includes('未分類やキュー対象外のTASKは残り得ます') && "
+                            "!document.querySelector('.inspector-machine-items')"
+                        ),
+                    )
+                elif scenario == "populated":
+                    require(
+                        "dual-read-verified-task-and-link-safety",
+                        devtools.evaluate(
+                            "(() => { const rows = document.querySelectorAll("
+                            "'.inspector-machine-items .inspector-machine-task'); "
+                            "const links = document.querySelectorAll("
+                            "'.inspector-machine-items a.inspector-machine-task'); "
+                            "return rows.length === 2 && links.length === 1 && "
+                            "links[0].href === "
+                            "'https://github.com/kinoko34077/demo-00/issues/64' && "
+                            "links[0].rel.includes('noopener') && "
+                            "rows[1].tagName === 'SPAN' && "
+                            "!document.querySelector('.inspector-machine-items')"
+                            ".textContent.includes('not a projected TASK'); })()"
+                        ),
+                    )
+                devtools.evaluate(
+                    "document.dispatchEvent(new KeyboardEvent('keydown', "
+                    "{key:'Escape', bubbles:true}))"
+                )
+            write_site(state_path.parent)
+            devtools.call("Page.reload", {"ignoreCache": True})
+            wait_until(
+                devtools,
+                "document.querySelectorAll('#repository-tbody .repo-row').length === 44",
             )
 
             devtools.call(
