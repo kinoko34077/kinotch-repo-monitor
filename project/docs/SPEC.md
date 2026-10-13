@@ -120,11 +120,37 @@ retirement from queue entries, from a current transport, or from zero entries.
   checks do not authorize merge/deploy. This section is proposed implementation
   contract, not an assertion that it is on current published main.
 
+### M3 all-state TASK preview (Issue #69; separate R5 slice)
+
+The canonical devflow M1 Projection remains the **only** TASK classifier. The
+M2 machine-owned Repository Control cache may add optional bounded
+`all_state_tasks` derived from that M1 source. Repo Monitor only validates and
+presents this transport: at most 20 open TASKs, their explicit work states,
+total known TASK count and COMPLETE/TRUNCATED/INCOMPLETE/UNAVAILABLE.
+
+- Validate the source repository identity, exact generation digest,
+  timestamp validity, current verified Control trust, 20-item bound, true
+  completeness count, unique canonical public Issue refs, and task role/source
+  before displaying records. Reject forged completeness or unsafe links.
+- Historical cache markers lacking the new field are **UNKNOWN**, not
+  zero/COMPLETE. Expired, unavailable, malformed and truncated statuses must
+  be visible. If global snapshot becomes stale, do not continue to assert
+  all-state completeness from old data.
+- Display all-state TASK records **next to** traditional manual Control while
+  preserving existing partial Human Portfolio attention queue. A fully
+  verified zero must be visibly distinct from missing/empty partial queue.
+- Static Pages remains publicly read-only: no client-side GitHub API fetch,
+  token, raw Issue classifier, second database or write authority. Manual
+  Control remains fallback; an M2 preview never grants M3.1/runtime/SMC
+  admission.
+- R5 Consumer acceptance requires exact-head Windows browser/source tests,
+  production Pages deploy and direct public snapshot ref/status readback.
+
 ### Public GitHub Pages surface
 
 - GitHub Pages is a separate public, read-only static surface. It does not change or expose the loopback-only localhost runtime.
 - The Pages build must derive its state only from public devflow Repository Control data through the repository's existing trusted devflow parser/validation path.
-- The public snapshot schema is `repo-monitor-pages.v1` and may expose repository workflow/audit projection plus Human Portfolio data only.
+- The public snapshot schema is `repo-monitor-pages.v1` and may expose repository workflow/audit projection, Human Portfolio, and validated bounded M2 all-state TASK preview only.
 - The Pages snapshot must not contain local filesystem paths, ChatGPT URLs, local Git dirty/ahead/behind/activity state, local configuration, credentials, sessions, or mutation controls.
 - If the devflow source read fails or no successful source fetch timestamp exists, the Pages builder must fail instead of publishing a new snapshot.
 - Pages JavaScript is render/filter/navigation only. It must not contain authentication/token handling, write-back endpoints, POST mutation paths, or reimplement devflow trust classification.
