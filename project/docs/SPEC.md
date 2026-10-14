@@ -151,6 +151,23 @@ classify repository Issues or build a second work database.
 - Verify historical/unknown/stale/invalid/truncated source and actual
   browser desktop/mobile rendering and navigation before publishing.
 
+### M3 P2 read-only display precedence (Repo Monitor #73)
+
+After the R5 canonical all-state public transport has been accepted, Inspector
+may **visually** put the machine side first for a repository **only** when
+the shared public snapshot is not stale and its previously validated
+`all_state_tasks` is CURRENT/COMPLETE with a nonempty exact-length task list.
+The legacy Control side remains visible immediately beside it, explicitly
+identified as fallback. If source is missing, stale, incomplete, truncated
+or reports zero current tasks, show the manual side first instead.
+
+This is **presentation priority only**, not M3.1 admission, machine write
+authority, permission to execute a TASK, Human/reviewer permission, or a new
+Issue classifier. The chosen layout order is not persisted and does not mutate
+GitHub, cache records, or consumer claims. Test both ordering modes in the
+existing Windows real-browser desktop/tablet/mobile checks and preserve
+keyboard/focus and manual-source readback.
+
 ### Public GitHub Pages surface
 
 - GitHub Pages is a separate public, read-only static surface. It does not change or expose the loopback-only localhost runtime.
