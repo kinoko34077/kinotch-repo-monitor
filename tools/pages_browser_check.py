@@ -442,14 +442,14 @@ def run_browser_checks(
                         devtools.evaluate(
                             "document.querySelector('.inspector-machine-observation')"
                             ".textContent.includes('未取得。作業が0件という意味ではありません。') && "
-                            "!document.querySelector('.inspector-machine-items')"
+                            "!document.querySelector('.inspector-machine-observation .inspector-machine-items')"
                         ),
                     )
                 elif scenario == "stale":
                     require(
                         "dual-read-stale-warning",
                         devtools.evaluate(
-                            "document.querySelector('.inspector-work-warning')"
+                            "document.querySelector('.inspector-machine-observation .inspector-work-warning')"
                             ".textContent.includes('前回値／未検証') && "
                             "document.querySelector('.inspector-machine-observation')"
                             ".textContent.includes('表示対象の機械キュー項目なし')"
@@ -459,11 +459,11 @@ def run_browser_checks(
                     require(
                         "dual-read-empty-partial-not-complete",
                         devtools.evaluate(
-                            "document.querySelector('.inspector-work-source')"
+                            "document.querySelector('.inspector-machine-observation .inspector-work-source')"
                             ".textContent.includes('CURRENT') && "
                             "document.querySelector('.inspector-machine-observation')"
                             ".textContent.includes('未分類やキュー対象外のTASKは残り得ます') && "
-                            "!document.querySelector('.inspector-machine-items')"
+                            "!document.querySelector('.inspector-machine-observation .inspector-machine-items')"
                         ),
                     )
                 elif scenario == "populated":
@@ -471,15 +471,15 @@ def run_browser_checks(
                         "dual-read-verified-task-and-link-safety",
                         devtools.evaluate(
                             "(() => { const rows = document.querySelectorAll("
-                            "'.inspector-machine-items .inspector-machine-task'); "
+                            "'.inspector-machine-observation .inspector-machine-items .inspector-machine-task'); "
                             "const links = document.querySelectorAll("
-                            "'.inspector-machine-items a.inspector-machine-task'); "
+                            "'.inspector-machine-observation .inspector-machine-items a.inspector-machine-task'); "
                             "return rows.length === 2 && links.length === 1 && "
                             "links[0].href === "
                             "'https://github.com/kinoko34077/demo-00/issues/64' && "
                             "links[0].rel.includes('noopener') && "
                             "rows[1].tagName === 'SPAN' && "
-                            "!document.querySelector('.inspector-machine-items')"
+                            "!document.querySelector('.inspector-machine-observation .inspector-machine-items')"
                             ".textContent.includes('not a projected TASK'); })()"
                         ),
                     )
