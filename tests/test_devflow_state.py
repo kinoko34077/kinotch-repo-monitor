@@ -5,10 +5,14 @@ import threading
 import time
 import unittest
 from email.message import Message
+from datetime import datetime
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from repo_monitor.devflow_state import DevflowStateProvider, _fetch_public_issues, parse_control_issues
+from repo_monitor.devflow_state import (
+    DevflowStateProvider, _fetch_public_issues, parse_control_issues,
+    _parse_cached_all_state,
+)
 
 
 ISSUE_BODY = """## Repository
@@ -64,6 +68,49 @@ ISSUE_BODY = """## Repository
 
 `VERIFY — run CI`
 """
+
+
+def all_state_transport(
+    *,
+    statuses=("AWAITING_REVIEW", "BLOCKED"),
+    mode="COMPLETE",
+    corrupt=False,
+    repository="kinoko34077/example-repo",
+):
+    marker = projection_transport()
+    raw = marker.split("<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->", 1)[1]
+    raw = raw.split("<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->", 1)[0]
+    payload = json.loads(raw)
+    rows = [
+        {
+            "issue_number": index, "title": f"Real TASK {index}",
+            "url": f"https://github.com/{repository}/issues/{index}",
+            "source_kind": "MACHINE", "record_role": "TASK",
+            "type": "FEATURE", "work_status": status,
+            "attention_disposition": None,
+        }
+        for index, status in enumerate(statuses, 1)
+    ]
+    payload["counts"]["open_issues"] = len(statuses)
+    payload["counts"]["machine_records"] = len(statuses)
+    payload["counts"]["machine_tasks"] = len(statuses)
+    payload["all_state_tasks"] = {
+        "status": mode,
+        "total": len(statuses),
+        "records": rows[:20],
+    }
+    if corrupt:
+        payload["all_state_tasks"]["records"][0]["url"] = "javascript:alert(1)"
+    material = dict(payload)
+    material.pop("generation_id")
+    payload["generation_id"] = "sha256:" + hashlib.sha256(
+        json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+    return (
+        "<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_BEGIN -->\n"
+        + json.dumps(payload)
+        + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
+    )
 
 
 def issue_payload():
@@ -148,6 +195,61 @@ def projection_transport(
         + "\n<!-- DEVFLOW_REPOSITORY_PROJECTION_V1_END -->"
     )
 
+
+class M3AllStateTransportTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime.fromisoformat("2026-10-04T06:00:00+00:00").timestamp()
+
+    def test_current_complete_has_review_and_blocked_and_no_local_classification(self):
+        value = _parse_cached_all_state(
+            all_state_transport(), "kinoko34077/example-repo", now=self.now,
+        )
+        self.assertEqual(value["transport_status"], "CURRENT")
+        self.assertEqual(value["status"], "COMPLETE")
+        self.assertEqual(value["total"], 2)
+        self.assertEqual(
+            [item["work_status"] for item in value["records"]],
+            ["AWAITING_REVIEW", "BLOCKED"],
+        )
+        issue = issue_payload()[0]
+        issue["body"] += "\n" + all_state_transport()
+        from repo_monitor.devflow_state import _parse_control_data
+        states, _ = _parse_control_data([issue], now=self.now)
+        self.assertEqual(states["example-repo"].as_dict()["all_state_tasks"], value)
+
+    def test_missing_or_historical_field_is_unknown_not_zero(self):
+        self.assertEqual(
+            _parse_cached_all_state(ISSUE_BODY, "kinoko34077/example-repo", now=self.now)["status"],
+            "UNKNOWN",
+        )
+        self.assertEqual(
+            _parse_cached_all_state(projection_transport(), "kinoko34077/example-repo", now=self.now)["status"],
+            "UNKNOWN",
+        )
+
+    def test_stale_or_corrupted_cache_fails_closed_without_executability(self):
+        self.assertEqual(
+            _parse_cached_all_state(all_state_transport(), "kinoko34077/example-repo", now=self.now + 90000)["transport_status"],
+            "STALE",
+        )
+        for raw in (
+            all_state_transport(corrupt=True),
+            all_state_transport(repository="kinoko34077/other"),
+            all_state_transport(mode="COMPLETE", statuses=tuple("BLOCKED" for _ in range(21))),
+        ):
+            with self.subTest(sample=raw[-100:]):
+                value = _parse_cached_all_state(raw, "kinoko34077/example-repo", now=self.now)
+                self.assertEqual(value["transport_status"], "INVALID")
+                self.assertEqual(value["records"], [])
+
+    def test_21_tasks_truncated_is_visible_as_partial_not_complete(self):
+        value = _parse_cached_all_state(
+            all_state_transport(mode="TRUNCATED", statuses=tuple("BLOCKED" for _ in range(21))),
+            "kinoko34077/example-repo", now=self.now,
+        )
+        self.assertEqual(value["status"], "TRUNCATED")
+        self.assertEqual(value["total"], 21)
+        self.assertEqual(len(value["records"]), 20)
 
 class DevflowStateTests(unittest.TestCase):
     def test_parse_control_issues_extracts_repository_workflow_fields(self):
