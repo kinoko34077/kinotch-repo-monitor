@@ -34,6 +34,12 @@ HUMAN_PORTFOLIO_SCHEMA_VERSION = "human-portfolio-cache.v1"
 HUMAN_PORTFOLIO_VALIDITY_SECONDS = 24 * 60 * 60
 HUMAN_PORTFOLIO_MAX_ENTRIES = 200
 HUMAN_PORTFOLIO_MAX_TASK_ERRORS = 100
+ALL_STATE_CACHE_MAX_TASKS = 20
+_ALL_STATE_STATES = frozenset({"COMPLETE", "TRUNCATED", "INCOMPLETE", "UNAVAILABLE"})
+_ALL_STATE_RECORD_FIELDS = frozenset({
+    "issue_number", "title", "url", "source_kind", "record_role",
+    "type", "work_status", "attention_disposition",
+})
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TASK_REF_RE = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
 _ENTRY_REF_RE = re.compile(
@@ -85,11 +91,13 @@ class DevflowRepoState:
     last_deep_audit_at: str = ""
     audit_freshness: str = ""
     repository_full_name: str = ""
+    all_state_tasks: dict[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
             "repository": self.repository,
             "repository_full_name": self.repository_full_name,
+            "all_state_tasks": dict(self.all_state_tasks) if self.all_state_tasks is not None else None,
             "work_status": self.work_status,
             "repository_state": self.repository_state,
             "active_work": self.active_work,
@@ -703,6 +711,107 @@ def _derived_control_transport_trusted(
     return True
 
 
+def _all_state_unknown(status: str = "UNKNOWN") -> dict[str, object]:
+    return {"transport_status": status, "status": "UNKNOWN", "total": None, "records": []}
+
+
+def _parse_cached_all_state(
+    body: str, repository: str, *, now: float
+) -> dict[str, object]:
+    """Validate upstream M2 all-state read transport; never classify Issues here.
+
+    Invalid cache data affects only the all-state read panel, not manual
+    Control or the separately verified Human Portfolio reader.
+    """
+    try:
+        cache = _projection_transport_payload(body)
+        if cache is None or "all_state_tasks" not in cache:
+            return _all_state_unknown()
+        if cache.get("schema_version") != PROJECTION_SCHEMA_VERSION:
+            raise ValueError("wrong cache schema")
+        if cache.get("repository") != repository:
+            raise ValueError("repository mismatch")
+        digest = cache.get("generation_id")
+        if (not isinstance(digest, str)
+                or _SHA256_RE.fullmatch(digest) is None
+                or digest != _canonical_projection_generation_id(cache)):
+            raise ValueError("invalid cache generation identity")
+        generated = _rfc3339_epoch(cache.get("generated_at"), "all-state generated")
+        valid_until = _rfc3339_epoch(cache.get("valid_until"), "all-state valid until")
+        if abs((valid_until - generated) - PROJECTION_VALIDITY_SECONDS) > 1e-6:
+            raise ValueError("invalid cache validity")
+        source = cache.get("source")
+        trust = cache.get("control_trust")
+        coverage = cache.get("coverage")
+        counts = cache.get("counts")
+        data = cache.get("all_state_tasks")
+        if not all(isinstance(item, Mapping) for item in (source, trust, coverage, counts, data)):
+            raise ValueError("missing cache objects")
+        _require_exact_fields(data, frozenset({"status", "total", "records"}), "all-state")
+        status = data.get("status")
+        total = data.get("total")
+        records = data.get("records")
+        if status not in _ALL_STATE_STATES:
+            raise ValueError("unknown all-state status")
+        if (type(total) is not int or total < 0
+                or type(counts.get("machine_tasks")) is not int
+                or total != counts.get("machine_tasks")):
+            raise ValueError("untrusted task count")
+        if not isinstance(records, list) or len(records) > ALL_STATE_CACHE_MAX_TASKS:
+            raise ValueError("unbounded records")
+        seen: set[int] = set()
+        normalized: list[dict[str, object]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise ValueError("invalid record")
+            _require_exact_fields(record, _ALL_STATE_RECORD_FIELDS, "all-state record")
+            number = record.get("issue_number")
+            if (type(number) is not int or number < 1 or number in seen
+                    or record.get("url") != f"https://github.com/{repository}/issues/{number}"
+                    or record.get("source_kind") != "MACHINE"
+                    or record.get("record_role") != "TASK"
+                    or not isinstance(record.get("work_status"), str)
+                    or not record.get("work_status")
+                    or not isinstance(record.get("title"), str)
+                    or not record.get("title").strip()):
+                raise ValueError("untrusted TASK record")
+            for field in ("type", "attention_disposition"):
+                if record.get(field) is not None and not isinstance(record.get(field), str):
+                    raise ValueError("invalid optional TASK field")
+            seen.add(number)
+            normalized.append(dict(record))
+        if status == "COMPLETE" and (
+            len(normalized) != total
+            or coverage.get("status") != "COMPLETE"
+            or source.get("status") != "AVAILABLE"
+            or source.get("freshness") != "CURRENT"
+        ):
+            raise ValueError("unproven complete TASK list")
+        if status == "TRUNCATED" and (
+            total <= ALL_STATE_CACHE_MAX_TASKS
+            or len(normalized) != ALL_STATE_CACHE_MAX_TASKS
+        ):
+            raise ValueError("inconsistent truncated list")
+        if status == "UNAVAILABLE" and (
+            source.get("status") != "UNAVAILABLE" or normalized
+        ):
+            raise ValueError("unavailable source record mismatch")
+        if (trust.get("status") != "VERIFIED"
+                or trust.get("freshness") != "CURRENT"
+                or trust.get("source") != PROJECTION_TRUST_SOURCE):
+            raise ValueError("unverified Control")
+        if not isinstance(source.get("digest"), str) or _SHA256_RE.fullmatch(source["digest"]) is None:
+            raise ValueError("invalid source digest")
+        if (now < generated or now > valid_until
+                or source.get("freshness") != "CURRENT"):
+            return {"transport_status": "STALE", "status": status, "total": total, "records": []}
+        if source.get("status") != "AVAILABLE":
+            return {"transport_status": "UNAVAILABLE", "status": status, "total": total, "records": []}
+        return {"transport_status": "CURRENT", "status": status, "total": total, "records": normalized}
+    except (ValueError, TypeError, KeyError):
+        return _all_state_unknown("INVALID")
+
+
 def _is_trusted_control_issue(
     issue: Mapping[str, object],
     body: str,
@@ -777,6 +886,10 @@ def _parse_control_data(
             audit_evidence=_clean_value(parts.get("audit evidence", "")),
             last_deep_audit_at=_clean_value(parts.get("last deep audit at", "")),
             audit_freshness=_audit_freshness_projection(issue),
+            all_state_tasks=(
+                _parse_cached_all_state(body_text, repository_full_name, now=observed_now)
+                if repository_full_name else _all_state_unknown()
+            ),
         )
         if repository_full_name:
             portfolio = _validate_human_portfolio(
