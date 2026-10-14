@@ -738,6 +738,18 @@ function renderInspectorMachineObservation(repo) {
   return section;
 }
 
+function preferMachineReadOnly(repo) {
+  // A visual-only precedence cue. No authority, action, SMC or gate changes.
+  const tasks = repo.all_state_tasks;
+  return !Boolean(state.payload?.source?.stale)
+    && tasks?.transport_status === "CURRENT"
+    && tasks?.status === "COMPLETE"
+    && Number.isInteger(tasks?.total)
+    && tasks.total > 0
+    && Array.isArray(tasks.records)
+    && tasks.records.length === tasks.total;
+}
+
 function renderInspector() {
   const repos = state.payload && Array.isArray(state.payload.repositories)
     ? state.payload.repositories
@@ -778,15 +790,25 @@ function renderInspector() {
   ui.inspectorContent.append(badges);
 
   const comparison = element("section", "inspector-work-comparison");
-  const manual = element("div", "inspector-work-column");
+  const machineFirst = preferMachineReadOnly(repo);
+  comparison.dataset.readPriority = machineFirst ? "MACHINE_DISPLAY_ONLY" : "MANUAL_FALLBACK";
+  const manual = element("div", "inspector-work-column inspector-work-manual");
   manual.append(
-    element("h3", "inspector-work-title", "従来側：手動Control"),
+    element("h3", "inspector-work-title",
+      machineFirst ? "従来側：手動Control（切戻し参照）" : "従来側：手動Control"),
     inspectorSection("次のアクション", repo.next_action),
     inspectorSection("現在の作業", repo.active_work),
   );
-  const machine = element("div", "inspector-work-column");
+  const machine = element("div", "inspector-work-column inspector-work-machine");
+  if (machineFirst) {
+    machine.append(element("p", "inspector-work-source",
+      "機械側を先に表示中（読取専用）。実行許可・正式な管理権限移行ではありません。"));
+  }
   machine.append(renderInspectorAllState(repo), renderInspectorMachineObservation(repo));
-  comparison.append(manual, machine);
+  // Retain both panels. When source is absent, stale, incomplete or empty,
+  // the manual panel remains first and authoritative for local work.
+  if (machineFirst) comparison.append(machine, manual);
+  else comparison.append(manual, machine);
   ui.inspectorContent.append(comparison);
 
   renderInspectorHumanPortfolio(repo, ui.inspectorContent);
