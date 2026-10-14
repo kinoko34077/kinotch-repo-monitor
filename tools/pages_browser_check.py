@@ -99,6 +99,36 @@ def fixture_payload(*, stale_portfolio: bool = False, machine_case: str | None =
                 "entries": [],
             }
         )
+    # Exercise the upstream all-state read model without reclassifying Issues.
+    all_state = {
+        "transport_status": "UNKNOWN", "status": "UNKNOWN",
+        "total": None, "records": [],
+    }
+    if machine_case == "empty":
+        all_state = {
+            "transport_status": "CURRENT", "status": "COMPLETE",
+            "total": 0, "records": [],
+        }
+    elif machine_case == "stale":
+        all_state = {
+            "transport_status": "STALE", "status": "COMPLETE",
+            "total": 1, "records": [],
+        }
+    elif machine_case == "populated":
+        all_state = {
+            "transport_status": "CURRENT", "status": "COMPLETE",
+            "total": 2,
+            "records": [
+                {
+                    "issue_number": number, "title": f"Real task {number}",
+                    "url": f"https://github.com/kinoko34077/demo-00/issues/{number}",
+                    "work_status": status,
+                }
+                for number, status in ((12, "AWAITING_REVIEW"), (14, "BLOCKED"))
+            ],
+        }
+    repositories[0]["all_state_tasks"] = all_state
+
     # Scenario fixtures exercise the actual browser DOM; no application stub.
     if machine_case == "absent":
         portfolios.pop(0)
@@ -358,6 +388,45 @@ def run_browser_checks(
                     devtools,
                     "document.querySelector('.inspector-machine-observation') !== null",
                 )
+                require(
+                    f"allstate-{scenario}-panel",
+                    devtools.evaluate(
+                        "document.querySelector('.inspector-allstate-observation') !== null && "
+                        "document.querySelector('.inspector-allstate-observation')"
+                        ".textContent.includes('全状態TASK')"
+                    ),
+                )
+                if scenario in ("absent", "stale"):
+                    require(
+                        f"allstate-{scenario}-unknown-not-empty",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-allstate-observation')"
+                            ".textContent.includes('0件とは判定しません')"
+                        ),
+                    )
+                elif scenario == "empty":
+                    require(
+                        "allstate-current-empty-only",
+                        devtools.evaluate(
+                            "document.querySelector('.inspector-allstate-observation')"
+                            ".textContent.includes('分類済みTASKは0件')"
+                        ),
+                    )
+                elif scenario == "populated":
+                    require(
+                        "allstate-review-and-blocked",
+                        devtools.evaluate(
+                            "(() => { const items = document.querySelectorAll("
+                            "'.inspector-allstate-items a'); "
+                            "return items.length === 2 && "
+                            "items[0].textContent.includes('AWAITING_REVIEW') && "
+                            "items[1].textContent.includes('BLOCKED') && "
+                            "items[0].href === "
+                            "'https://github.com/kinoko34077/demo-00/issues/12' && "
+                            "document.querySelector('.inspector-allstate-observation')"
+                            ".textContent.includes('実行許可'); })()"
+                        ),
+                    )
                 require(
                     f"dual-read-{scenario}-manual-retained",
                     devtools.evaluate(
