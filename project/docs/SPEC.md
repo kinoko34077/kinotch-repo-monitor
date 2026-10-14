@@ -120,6 +120,37 @@ retirement from queue entries, from a current transport, or from zero entries.
   checks do not authorize merge/deploy. This section is proposed implementation
   contract, not an assertion that it is on current published main.
 
+### M3 R5 all-state read-only Inspector addition (devflow#477 / Repo Monitor#71)
+
+The public Inspector extends its existing **manual Control versus machine**
+side-by-side display with canonical `all_state_tasks` read from the same
+verified devflow M2 Repository Projection Control marker. The central devflow
+classifier/producer is the **only** source of machine TASK statuses; Repo
+Monitor may validate and render the emitted refs but must not independently
+classify repository Issues or build a second work database.
+
+- Upstream cached `all_state_tasks` is optional, bounded to 20 records, and
+  separately reports `COMPLETE`, `TRUNCATED`, `INCOMPLETE` or `UNAVAILABLE`.
+  Missing older cache field or invalid/mismatched generation => **UNKNOWN**,
+  never silently empty/complete. Stale source => separate STALE transport.
+- Reject duplicate TASK refs, wrong repository URL/issue number, non-TASK
+  role, non-MACHINE source, malformed/over-limit records and a false COMPLETE
+  count. Preserve Control generation digest, verified trust and valid 24h
+  source window. Do not expose cached details from invalid or stale sources.
+- Display REVIEW/BLOCKED/open DONE and deferred statuses when present, plus
+  exact safe GitHub Issue links. Retain the existing Human Portfolio
+  *attention-only* area as separately labeled partial data; do not conflate
+  their counts or assume Human Portfolio lists all TASKs.
+- The static Pages `state.json` may expose only this bounded existing
+  **public devflow Control** projection alongside existing public data.
+  No browser authentication, new API endpoint, private/local state, tokens,
+  source mutation, runtime offer/claim or action permission.
+- The operator still has manual `Active Work` / `Next Action` read fallback.
+  An all-state cache status COMPLETE is **read-only information**, not
+  M3.1/SMC authorization or license to retire manual Control.
+- Verify historical/unknown/stale/invalid/truncated source and actual
+  browser desktop/mobile rendering and navigation before publishing.
+
 ### Public GitHub Pages surface
 
 - GitHub Pages is a separate public, read-only static surface. It does not change or expose the loopback-only localhost runtime.
