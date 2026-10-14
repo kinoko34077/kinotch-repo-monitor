@@ -430,10 +430,21 @@ def run_browser_checks(
                 require(
                     f"dual-read-{scenario}-manual-retained",
                     devtools.evaluate(
-                        "document.querySelector('.inspector-work-column').textContent"
+                        "document.querySelector('.inspector-work-manual').textContent"
                         ".includes('従来側：手動Control') && "
-                        "document.querySelector('.inspector-work-column').textContent"
+                        "document.querySelector('.inspector-work-manual').textContent"
                         ".includes('次のアクション')"
+                    ),
+                )
+                expected_first = "MACHINE_DISPLAY_ONLY" if scenario == "populated" else "MANUAL_FALLBACK"
+                require(
+                    f"m3-p2-{scenario}-read-only-precedence",
+                    devtools.evaluate(
+                        "(() => { const view = document.querySelector('.inspector-work-comparison'); "
+                        "return view.dataset.readPriority === " + repr(expected_first) + " && "
+                        "view.firstElementChild.classList.contains(" +
+                        ("'inspector-work-machine'" if scenario == "populated" else "'inspector-work-manual'") +
+                        ") && view.children.length === 2; })()"
                     ),
                 )
                 if scenario == "absent":
