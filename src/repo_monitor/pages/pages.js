@@ -641,6 +641,57 @@ function renderInspectorHumanPortfolio(repo, container) {
   container.append(section);
 }
 
+function renderInspectorAllState(repo) {
+  const section = element("section", "inspector-section inspector-allstate-observation");
+  section.append(element("h3", "", "機械側：全状態TASK（最大20件）"));
+  const tasks = repo.all_state_tasks;
+  const freshness = tasks?.transport_status || "UNKNOWN";
+  const status = tasks?.status || "UNKNOWN";
+  const current = freshness === "CURRENT" && !Boolean(state.payload?.source?.stale);
+  if (!current) {
+    section.append(element(
+      "p", "inspector-work-warning",
+      "全状態の取得状況：" + freshness + "。手動Controlを参照してください。0件とは判定しません。",
+    ));
+    return section;
+  }
+  const total = Number.isInteger(tasks.total) ? tasks.total : null;
+  const shown = Array.isArray(tasks.records) ? tasks.records : [];
+  section.append(element(
+    "p", "inspector-work-source",
+    "中央Projection · " + status + " · " + (total === null ? "件数不明" : "全" + total + "件"),
+  ));
+  if (status !== "COMPLETE") {
+    section.append(element(
+      "p", "inspector-work-warning",
+      "この一覧は完全ではありません。未分類・上限超過・取得不能が残り得ます。",
+    ));
+  } else if (total === 0) {
+    section.append(element("p", "inspector-prose", "取得時点で分類済みTASKは0件です。"));
+  }
+  const list = element("div", "inspector-machine-items inspector-allstate-items");
+  for (const task of shown) {
+    const label = (task.work_status || "UNKNOWN") + " · #" + task.issue_number
+      + " · " + (task.title || "TASK");
+    const url = safeUrl(task.url, "/kinoko34077/");
+    const row = url
+      ? element("a", "inspector-machine-task", label)
+      : element("span", "inspector-machine-task", label);
+    if (url) {
+      row.href = url;
+      row.target = "_blank";
+      row.rel = "noopener noreferrer";
+    }
+    list.append(row);
+  }
+  section.append(list);
+  section.append(element(
+    "p", "inspector-work-note",
+    "これは読取専用の作業表示です。実行許可・手動Controlの廃止を意味しません。",
+  ));
+  return section;
+}
+
 function renderInspectorMachineObservation(repo) {
   const section = element("section", "inspector-section inspector-machine-observation");
   section.append(element("h3", "", "機械側：確認可能な作業・対応（部分）"));
@@ -733,7 +784,9 @@ function renderInspector() {
     inspectorSection("次のアクション", repo.next_action),
     inspectorSection("現在の作業", repo.active_work),
   );
-  comparison.append(manual, renderInspectorMachineObservation(repo));
+  const machine = element("div", "inspector-work-column");
+  machine.append(renderInspectorAllState(repo), renderInspectorMachineObservation(repo));
+  comparison.append(manual, machine);
   ui.inspectorContent.append(comparison);
 
   renderInspectorHumanPortfolio(repo, ui.inspectorContent);
