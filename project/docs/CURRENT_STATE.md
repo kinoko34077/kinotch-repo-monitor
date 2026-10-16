@@ -261,3 +261,11 @@ Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active localho
 - 未検証ファイルと表示し、真正なGitHub Ledgerを読み直した証明にはしない。`ATTESTED_SCOPE_MATCH`も独立監査の合格ではない。再読込/消去により以前のsnapshotが残らない。
 - 同期したユーザー選択のJSONをlocalブラウザで閲覧する機能であり、**M5 real run、M6新規PILOT、M7 Hosted/Project/公開Pages、M8実E2Eを受入れたものではない**。既存Pagesビルド対象の `src/repo_monitor/pages/` と Pages Workflowは未変更。
 - テスト: 既存 `verify.cmd` と Chrome DevTools `tools/browser_interaction_check.py` に、正当なレポート/詐称所属/偽件数/状態すり替え/表示消去を追加。受入の実CI・review・HEAD記録はowner Issue #77 / devflow #588へ保存する。
+
+
+## SMC M7 Public 3-PILOT coverage view — Issue #79
+
+- ユーザーは公開について明示承認（2026-10-17）。Repo Monitorの既存GitHub Pagesに `/smc/` を追加する小規模な承認済み公開作業。
+- 既存の `.github/workflows/pages.yml` に公開devflowの独立checkout（永続credentialsなし）とGET-onlyの正規 `scripts/maintenance_coverage_report.py` を接続。元JSONはrunner.tempへ一時保存、配布されるのは新 `tools/build_public_smc.py` による検証済み派生HTMLだけ。権限・secret追加・定期実行頻度変更なし。
+- 3つの公開PILOT、exact owner/Issue、row計数、ステータス、source観測時刻を検証。raw comments/evidence URL/fingerprint/run IDは公開せず、未実施・変更・不明の状態を維持。データ取得・検証不可時は新しいPagesビルドをfail-closedにする。
+- 公開画面は静的snapshotであり、真正な現在Live stateや監査実行・claim・v2 Ledger登録ではない。M5はdevflow #209供給なしのため別工程、M6/M8も未受入。動作証拠の真正性は実際のPages build/deployと公開URLを取得して判定する。
