@@ -779,3 +779,144 @@ ui.chatForm.addEventListener("submit", (event) => {
 });
 
 refreshState({ quiet: false });
+
+
+// SMC M7 local-only consumer of the existing devflow JSON CLI report.
+// This file is never sent to the monitor server; it stays in this tab's memory.
+const SMC_PILOT_LEDGERS = Object.freeze({
+  "kinoko34077/devflow": 367,
+  "kinoko34077/execution-coordinator": 127,
+  "kinoko34077/kinotch-repository-base": 50,
+});
+const SMC_STATUSES = new Set([
+  "NOT_RUN", "NO_COVERAGE", "LEGACY_SCOPE_UNBOUND", "ATTESTED_SCOPE_MATCH",
+  "UNKNOWN_FINGERPRINT", "SOURCE_DRIFT", "CATALOG_DRIFT", "LENS_DRIFT",
+  "SCOPE_DRIFT", "AMBIGUOUS_HISTORY", "UNTRUSTED", "INSUFFICIENT_EVIDENCE",
+]);
+const SMC_DEPTHS = new Set(["CONTROL", "STANDARD", "DEEP"]);
+
+function parseSmcCoverageReport(report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)
+      || report.schema_version !== "smc-coverage-report.v1") {
+    throw new Error("未対応のSMCレポート形式です");
+  }
+  const repos = report.repositories, rows = report.rows;
+  if (!Array.isArray(repos) || !Array.isArray(rows)
+      || repos.length < 1 || repos.length > 3
+      || rows.length < 1 || rows.length > 1500
+      || report.repository_count !== repos.length || report.row_count !== rows.length
+      || !report.coverage_state_counts || typeof report.coverage_state_counts !== "object") {
+    throw new Error("対象リポまたは件数が不正です");
+  }
+  if (typeof report.observed_at !== "string"
+      || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(report.observed_at)
+      || !Number.isFinite(Date.parse(report.observed_at))) {
+    throw new Error("観測日時が不正です");
+  }
+  const expected = new Map(), counters = new Map();
+  for (const repo of repos) {
+    if (!repo || typeof repo !== "object"
+        || !Object.hasOwn(SMC_PILOT_LEDGERS, repo.repository)
+        || SMC_PILOT_LEDGERS[repo.repository] !== repo.ledger_issue_number
+        || expected.has(repo.repository)
+        || !Number.isSafeInteger(repo.slot_depth_rows)
+        || !repo.coverage_states || typeof repo.coverage_states !== "object") {
+      throw new Error("認可済み3 PILOT以外またはLedger対応不一致です");
+    }
+    expected.set(repo.repository, repo);
+    counters.set(repo.repository, new Map());
+  }
+  const unique = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || !expected.has(row.repository)
+        || !SMC_STATUSES.has(row.status) || !SMC_DEPTHS.has(row.depth)
+        || typeof row.slot_id !== "string" || !row.slot_id
+        || typeof row.lens !== "string" || !row.lens
+        || typeof row.scope_kind !== "string" || !row.scope_kind
+        || typeof row.scope_selector !== "string" || !row.scope_selector) {
+      throw new Error("監査行の所属・観点・状態が不正です");
+    }
+    const key = JSON.stringify([row.repository, row.slot_id, row.depth]);
+    if (unique.has(key)) throw new Error("重複した監査スロットがあります");
+    unique.add(key);
+    const current = counters.get(row.repository);
+    current.set(row.status, (current.get(row.status) || 0) + 1);
+  }
+  const totals = new Map();
+  for (const [repo, summary] of expected) {
+    const counts = counters.get(repo);
+    const length = [...counts.values()].reduce((a, b) => a + b, 0);
+    if (summary.slot_depth_rows !== length
+        || Object.keys(summary.coverage_states).length !== counts.size) {
+      throw new Error("リポ別監査集計が一致しません");
+    }
+    for (const [status, count] of Object.entries(summary.coverage_states)) {
+      if (!SMC_STATUSES.has(status) || counts.get(status) !== count) {
+        throw new Error("リポ別監査状態が一致しません");
+      }
+      totals.set(status, (totals.get(status) || 0) + count);
+    }
+  }
+  if (Object.keys(report.coverage_state_counts).length !== totals.size
+      || [...totals].some(([status, count]) => report.coverage_state_counts[status] !== count)) {
+    throw new Error("全体の監査状態集計が一致しません");
+  }
+  // Snapshot metadata is untrusted file content; this is a local preview,
+  // not an authenticated GitHub source or a verified real audit.
+  return { observedAt: report.observed_at, rows };
+}
+
+const smcPreview = {
+  file: document.getElementById("smc-import-file"),
+  clear: document.getElementById("smc-clear"),
+  status: document.getElementById("smc-import-status"),
+  summary: document.getElementById("smc-import-summary"),
+  body: document.getElementById("smc-import-rows"),
+};
+function clearSmcPreview(message = "未読込 — 監査状態は不明です") {
+  smcPreview.file.value = "";
+  smcPreview.body.replaceChildren();
+  smcPreview.summary.textContent = "";
+  smcPreview.status.textContent = message;
+  smcPreview.clear.disabled = true;
+}
+function renderSmcPreview(preview) {
+  const fragment = document.createDocumentFragment();
+  for (const row of preview.rows) {
+    const tr = document.createElement("tr");
+    const cells = [
+      row.repository, row.scope_kind + ":" + row.scope_selector,
+      row.lens, row.depth, row.status,
+    ];
+    for (const value of cells) {
+      const td = document.createElement("td");
+      td.textContent = String(value);
+      tr.append(td);
+    }
+    tr.dataset.status = row.status;
+    fragment.append(tr);
+  }
+  smcPreview.body.replaceChildren(fragment);
+  smcPreview.summary.textContent =
+    "取込行 " + preview.rows.length + "件 / 観測 " + preview.observedAt
+    + " / 元データの信頼性・最新性は未検証";
+  smcPreview.status.textContent =
+    "ローカル取込済み（参考表示）。ATTESTED_SCOPE_MATCHでも実監査完了ではありません。";
+  smcPreview.clear.disabled = false;
+}
+smcPreview.file.addEventListener("change", async () => {
+  const file = smcPreview.file.files?.[0];
+  clearSmcPreview("確認中 — 以前の取込結果は破棄しました");
+  if (!file) return;
+  if (file.size > 1024 * 1024) {
+    smcPreview.status.textContent = "ファイルが1MiBを超えています";
+    return;
+  }
+  try {
+    const report = JSON.parse(await file.text());
+    renderSmcPreview(parseSmcCoverageReport(report));
+  } catch (error) {
+    clearSmcPreview("読込拒否: " + String(error.message || error));
+  }
+});
+smcPreview.clear.addEventListener("click", () => clearSmcPreview());
