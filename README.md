@@ -170,3 +170,22 @@ git clone https://github.com/kinoko34077/kinotch-repo-monitor.git
 cd kinotch-repo-monitor
 .\run.cmd
 ```
+
+
+## SMC監査カバレッジ（localhostのみ・JSON手動読込）
+
+devflowの既存3 PILOTの読取専用レポートを、ローカルのRepo Monitor画面で参照できます。**監査の実行や結果の認証ではありません。** 先に、既に認可済みの読み取り環境でdevflowの既存コマンドを実行してください。
+
+```bash
+python scripts/maintenance_coverage_report.py \
+  --repo-ledger 'kinoko34077/devflow#367' \
+  --repo-ledger 'kinoko34077/execution-coordinator#127' \
+  --repo-ledger 'kinoko34077/kinotch-repository-base#50' \
+  --format json --output smc-coverage.json
+```
+
+ローカルRepo Monitorの「監査カバレッジ（JSON手動読込）」でそのJSONを選択します。読込は**ブラウザタブ内だけ**で行われ、GitHubやlocalhostサーバーへアップロードせず、ブラウザストレージや設定へも保存しません。ファイルを閉じる/消去した後は自動復元しません。受理するのは既存3 PILOTのLedger組合せだけで、件数や所属、未信任/未実行状態も検査します。
+
+- 取込ファイルはユーザー提供のため、**真正GitHub観測・現在の監査状態として認証されません**。古いファイルを読めば古い状態です。
+- `ATTESTED_SCOPE_MATCH`は出典のメタデータ整合で、監査内容の完了証明ではありません。その他の未実行・不明・driftを自動合格にしません。
+- 公開GitHub Pagesにはこの読込機能もローカルJSONも公開しません。公開の監査状況表示は別途M7の権限・情報公開・出典/鮮度の検討が必要です。
