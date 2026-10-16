@@ -32,6 +32,25 @@ jobs:
           PYTHONPATH: src
           REPO_MONITOR_PUBLIC_READ_TOKEN: ${{ github.token }}
         run: python tools/build_pages.py --output _site
+      - name: Checkout canonical devflow SMC GET-only producer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: kinoko34077/devflow
+          path: _smc_devflow
+          persist-credentials: false
+      - name: Build public three-PILOT SMC snapshot (fail-closed)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SMC_TEMP_REPORT: ${{ runner.temp }}/smc-coverage-report.json
+        run: |
+          python _smc_devflow/scripts/maintenance_coverage_report.py \
+            --repo-ledger 'kinoko34077/devflow#367' \
+            --repo-ledger 'kinoko34077/execution-coordinator#127' \
+            --repo-ledger 'kinoko34077/kinotch-repository-base#50' \
+            --format json --output "$SMC_TEMP_REPORT"
+          python tools/build_public_smc.py --report "$SMC_TEMP_REPORT" \
+            --upstream _smc_devflow --output _site/smc/index.html
+          rm -f "$SMC_TEMP_REPORT"
       - name: Run Pages contract tests
         env:
           PYTHONPATH: src

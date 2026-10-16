@@ -189,3 +189,12 @@ python scripts/maintenance_coverage_report.py \
 - 取込ファイルはユーザー提供のため、**真正GitHub観測・現在の監査状態として認証されません**。古いファイルを読めば古い状態です。
 - `ATTESTED_SCOPE_MATCH`は出典のメタデータ整合で、監査内容の完了証明ではありません。その他の未実行・不明・driftを自動合格にしません。
 - 公開GitHub Pagesにはこの読込機能もローカルJSONも公開しません。公開の監査状況表示は別途M7の権限・情報公開・出典/鮮度の検討が必要です。
+
+
+## SMC監査カバレッジ — 公開スナップショット
+
+[Repo Monitor GitHub Pages](https://kinoko34077.github.io/kinotch-repo-monitor/) の「SMC監査状況」は、[devflow #588](https://github.com/kinoko34077/devflow/issues/588) に準拠した **3つの公開PILOTに限定した派生監査状況**を表示します。通常の公開Repo Monitorとは別の `/smc/` に設置します。
+
+既存のPages Actionsが持つ read-only GitHub Tokenで、公開リポジトリの既存Ledger・catalog・sourceを正規devflow CLIで照合します。追加トークン・書込権限・独自の監査判定系は導入しません。元JSONは公開せず、厳格に検証した範囲・観点・深度・状態・理由をHTMLに変換して公開します。状態更新は既存Pagesビルド時のみで、ブラウザが直接GitHubにアクセスして認証することはありません。
+
+この公開表示は**実際の監査完了証明ではありません**。`NOT_RUN`・`NO_COVERAGE`・`SOURCE_DRIFT`・`UNKNOWN_FINGERPRINT`を合格に変換せず、観測日時を記します。GitHub取得不良、ソース変更、対象外リポ、改ざんされた合計値の場合は公開用のビルドを拒否します。非公開データ・ファイルパス・認証情報・監査実行IDは公開しません。公開実装のownerは [Issue #79](https://github.com/kinoko34077/kinotch-repo-monitor/issues/79) です。
