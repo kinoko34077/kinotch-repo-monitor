@@ -252,3 +252,12 @@ Actual assistive-technology announcement behavior remains unverified with a scre
 ## Repository publication
 
 Published to `kinoko34077/kinotch-repo-monitor`. v0.5 remains the active localhost line. PR #55 / Issue #54 established the separate public read-only GitHub Pages surface at `https://kinoko34077.github.io/kinotch-repo-monitor/`; Issue #59 / PR #61 redesign that public surface into the accepted compact Table + Inspector portfolio view without exposing or replacing the loopback localhost runtime.
+
+
+## SMC M7 localhost JSON consumer — Issue #77
+
+- devflow #588の既存 `smc-coverage-report.v1` JSONをlocalhost画面へ**ユーザー操作でのみ**取り込む、ファイルAPIの読取専用プレビュー。対象は devflow#367 / execution-coordinator#127 / kinotch-repository-base#50 の厳密なrepo-Ledger組合せだけ。
+- HTML / JS / CSSは `src/repo_monitor/web/` だけに閉じ、内部のローカルGitスキャン・devflow Control・Human Portfolio・プライベート設定と融合しない。出力はDOM `textContent` のみ、サーバーPOST/リクエスト/保存を行わない。悪いschema/件数/所属/重複/未知statusは拒否。
+- 未検証ファイルと表示し、真正なGitHub Ledgerを読み直した証明にはしない。`ATTESTED_SCOPE_MATCH`も独立監査の合格ではない。再読込/消去により以前のsnapshotが残らない。
+- 同期したユーザー選択のJSONをlocalブラウザで閲覧する機能であり、**M5 real run、M6新規PILOT、M7 Hosted/Project/公開Pages、M8実E2Eを受入れたものではない**。既存Pagesビルド対象の `src/repo_monitor/pages/` と Pages Workflowは未変更。
+- テスト: 既存 `verify.cmd` と Chrome DevTools `tools/browser_interaction_check.py` に、正当なレポート/詐称所属/偽件数/状態すり替え/表示消去を追加。受入の実CI・review・HEAD記録はowner Issue #77 / devflow #588へ保存する。

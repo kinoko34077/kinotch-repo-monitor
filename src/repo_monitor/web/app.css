@@ -552,3 +552,19 @@ a.human-portfolio-task:hover {
   .visible-count { margin: 0; padding: 0 2px; }
   .repo-grid { grid-template-columns: 1fr; }
 }
+
+
+/* SMC JSON is a user-selected offline snapshot, never an authoritative audit */
+.smc-preview { margin: 0 0 18px; padding: 14px; background: #fff; border: 1px solid var(--border); border-radius: 14px; }
+.smc-preview-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.smc-preview-heading h2 { font-size: 1rem; }
+.smc-preview-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.smc-preview-actions label { font-size: .84rem; }
+.smc-preview-actions input { width: min(330px, 100%); }
+.smc-preview-notice, .smc-import-summary, #smc-import-status { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
+.smc-preview-scroll { max-width: 100%; overflow-x: auto; }
+.smc-preview-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .78rem; }
+.smc-preview-table th, .smc-preview-table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; overflow-wrap: anywhere; }
+.smc-preview-table th { white-space: nowrap; }
+.smc-preview-table tbody tr[data-status="ATTESTED_SCOPE_MATCH"] { background: #f2f6fa; }
+@media (max-width: 640px) { .smc-preview-heading { display: block; } .smc-preview-table { min-width: 680px; } }

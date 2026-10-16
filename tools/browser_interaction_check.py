@@ -137,6 +137,74 @@ def run_browser_checks(browser: Path, url: str) -> None:
                     "return window.__filterCard === document.querySelector('.repo-card') && !window.__filterCard.hidden; })()"
                 ),
             )
+
+            # SMC JSON is user-selected browser memory, never a trusted live audit.
+            require(
+                "smc-preview-default-unknown",
+                devtools.evaluate(
+                    "document.getElementById('smc-import-rows').children.length === 0 && "
+                    "document.getElementById('smc-import-status').textContent.includes('未読込')"
+                ),
+            )
+            require(
+                "smc-report-rejects-invalid-integrity",
+                devtools.evaluate(
+                    """(() => {
+                      const valid = {
+                        schema_version:'smc-coverage-report.v1', observed_at:'2026-10-16T00:00:00Z',
+                        repository_count:1, row_count:1,
+                        repositories:[{repository:'kinoko34077/devflow',ledger_issue_number:367,
+                          slot_depth_rows:1, coverage_states:{NOT_RUN:1}}],
+                        rows:[{repository:'kinoko34077/devflow',slot_id:'common.correctness',
+                          scope_kind:'repository',scope_selector:'.',lens:'correctness',
+                          depth:'STANDARD',status:'NOT_RUN'}],
+                        coverage_state_counts:{NOT_RUN:1}
+                      };
+                      window.__smcTestReport = valid;
+                      const reject = item => {try {parseSmcCoverageReport(item);return false;}
+                        catch (_) {return true;}};
+                      return parseSmcCoverageReport(valid).rows.length === 1
+                        && reject({...valid, repository_count:3})
+                        && reject({...valid, coverage_state_counts:{ATTESTED_SCOPE_MATCH:1}})
+                        && reject({...valid, rows:[{...valid.rows[0], repository:'other/private'}]})
+                        && reject({...valid, repositories:[{...valid.repositories[0],ledger_issue_number:999}]})
+                        && reject({...valid, rows:[{...valid.rows[0],status:'PASSED'}]});
+                    })()"""
+                ),
+            )
+            require(
+                "smc-local-file-trigger",
+                devtools.evaluate(
+                    """(() => {
+                      const input = document.getElementById('smc-import-file');
+                      const file = new File([JSON.stringify(window.__smcTestReport)], 'report.json',
+                                            {type:'application/json'});
+                      Object.defineProperty(input, 'files', {configurable:true,value:[file]});
+                      input.dispatchEvent(new Event('change', {bubbles:true}));
+                      return true;
+                    })()"""
+                ),
+            )
+            wait_until(
+                devtools,
+                "document.querySelectorAll('#smc-import-rows tr').length === 1",
+            )
+            require(
+                "smc-snapshot-not-green",
+                devtools.evaluate(
+                    "document.getElementById('smc-import-status').textContent.includes('実監査完了ではありません')"
+                    " && document.querySelector('#smc-import-rows tr').textContent.includes('NOT_RUN')"
+                ),
+            )
+            devtools.evaluate("document.getElementById('smc-clear').click(); true")
+            require(
+                "smc-clear-does-not-affect-cards",
+                devtools.evaluate(
+                    "document.querySelectorAll('#smc-import-rows tr').length === 0"
+                    " && document.querySelectorAll('.repo-card').length === 2"
+                ),
+            )
+
         finally:
             if devtools is not None:
                 devtools.close()
