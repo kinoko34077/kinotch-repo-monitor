@@ -58,6 +58,29 @@
       <p id="human-portfolio-empty" class="human-portfolio-empty" hidden>表示できる開発キューはありません。</p>
     </section>
 
+    <section class="smc-preview" aria-labelledby="smc-preview-heading">
+      <div class="smc-preview-heading">
+        <div>
+          <p class="eyebrow">SMC M7 / LOCAL-ONLY PREVIEW</p>
+          <h2 id="smc-preview-heading">監査カバレッジ（JSON手動読込）</h2>
+        </div>
+        <div class="smc-preview-actions">
+          <label for="smc-import-file">devflow出力JSONを選択</label>
+          <input id="smc-import-file" type="file" accept=".json,application/json">
+          <button class="button button-secondary" id="smc-clear" type="button" disabled>表示を消去</button>
+        </div>
+      </div>
+      <p class="smc-preview-notice">既存の3 PILOTに限定した、ファイル読込のみの参考表示です。ブラウザ内で処理し、サーバー・GitHub・Pagesへ送信しません。GitHubの真正性と最新性は、この画面では確認できません。</p>
+      <p id="smc-import-status" role="status" aria-live="polite">未読込 — 監査状態は不明です</p>
+      <p id="smc-import-summary" class="smc-import-summary"></p>
+      <div class="smc-preview-scroll">
+        <table class="smc-preview-table">
+          <thead><tr><th scope="col">Repo</th><th scope="col">Scope</th><th scope="col">Lens</th><th scope="col">Depth</th><th scope="col">Evidence state (非合格判定)</th></tr></thead>
+          <tbody id="smc-import-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="repo-grid" class="repo-grid" aria-label="Repositories"></section>
     <p id="empty-state" class="empty-state" hidden>条件に一致するrepoがありません。</p>
 
