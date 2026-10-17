@@ -93,11 +93,13 @@ def public_projection(report: dict) -> dict:
         if original.get("slot_depth_rows") != sum(repo_counts[name].values()) \
                 or original.get("coverage_states") != dict(repo_counts[name]):
             raise ValueError("repository coverage counts mismatch")
+        noncredit_record_count = original.get("noncredit_record_count")
+        if type(noncredit_record_count) is not int or noncredit_record_count < 0:
+            raise ValueError("invalid noncredit_record_count")
         public_repos.append({
             "repository": name, "ledger_issue_number": ACCEPTED[name],
             "slot_depth_rows": original["slot_depth_rows"],
-            "noncredit_record_count": original.get("noncredit_record_count")
-                if type(original.get("noncredit_record_count")) is int and original["noncredit_record_count"] >= 0 else 0,
+            "noncredit_record_count": noncredit_record_count,
             "coverage_states": dict(sorted(repo_counts[name].items())),
         })
     return {
