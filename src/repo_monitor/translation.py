@@ -101,6 +101,8 @@ class TranslationService:
             key = cache_key(text, source, target, provider.name, provider.model)
             if key in self.cache:
                 return Translation(text, self.cache[key], "cached", provider.name)
+        for provider in self.providers:
+            key = cache_key(text, source, target, provider.name, provider.model)
             # Fail closed on unproven quota: never call a provider without admission.
             if not self.admission(provider.name, len(text)):
                 continue
