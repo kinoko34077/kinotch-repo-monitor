@@ -110,6 +110,6 @@ class TranslationService:
                     raise ProviderError("empty_response")
                 self.cache[key] = translated
                 return Translation(text, translated, "translated", provider.name)
-            except ProviderError:
+            except (ProviderError, TimeoutError, OSError, ValueError):
                 continue
         return Translation(text, None, "original")
