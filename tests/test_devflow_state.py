@@ -651,6 +651,38 @@ class DevflowStateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "repeated or excessive"):
                 _fetch_public_issues()
 
+    def test_authenticated_redirect_is_refused_at_transport_boundary(self):
+        # Standard urllib redirects retain the original Authorization header.
+        # The public devflow API reader must refuse ANY redirect, including
+        # redirects to an external host, before another request can be made.
+        from urllib.request import Request
+        from repo_monitor.devflow_state import _RejectIssuesRedirect, urlopen
+
+        request = Request(
+            "https://api.github.com/repositories/1385584542/issues"
+            "?state=open&per_page=100&page=2",
+            headers={"Authorization": "Bearer fake-test-token"},
+        )
+        with self.assertRaisesRegex(HTTPError, "devflow Issues redirect refused"):
+            _RejectIssuesRedirect().redirect_request(
+                request, None, 302, "Found", {},
+                "https://redirect.example.invalid/capture",
+            )
+
+        class NoNetworkOpener:
+            def open(self, value, timeout=0):
+                self.last_request = value
+                self.timeout = timeout
+                raise RuntimeError("no network expected")
+
+        opener = NoNetworkOpener()
+        with patch("repo_monitor.devflow_state.build_opener", return_value=opener) as patched:
+            with self.assertRaisesRegex(RuntimeError, "no network expected"):
+                urlopen(request, timeout=3.0)
+            self.assertIsInstance(patched.call_args.args[0], _RejectIssuesRedirect)
+        self.assertIs(opener.last_request, request)
+        self.assertEqual(opener.timeout, 3.0)
+
     def test_public_issue_fetch_uses_explicit_actions_token_only_for_devflow(self):
         class FakeResponse:
             headers = {}
