@@ -37,6 +37,7 @@ def sample():
         "repositories": [{
             "repository": repo, "ledger_issue_number": issue,
             "slot_depth_rows": 1, "coverage_states": {"NOT_RUN": 1},
+            "noncredit_record_count": 0,
         } for repo, issue in REPOS],
         "rows": rows,
     }
@@ -66,6 +67,37 @@ class PublicSmcTests(unittest.TestCase):
             mutate(data)
             with self.subTest(mutator=mutate), self.assertRaises(ValueError):
                 smc.public_projection(data)
+
+    def test_valid_noncredit_integer_counts_are_preserved(self):
+        data = sample()
+        data["repositories"][0]["noncredit_record_count"] = 3
+        projected = smc.public_projection(data)
+        self.assertEqual(
+            3,
+            next(row["noncredit_record_count"] for row in projected["repositories"]
+                 if row["repository"] == data["repositories"][0]["repository"]),
+        )
+        self.assertEqual(
+            sorted(repo["repository"] for repo in data["repositories"]),
+            sorted(repo["repository"] for repo in projected["repositories"]),
+        )
+
+    def test_noncredit_missing_bool_negative_and_noninteger_fail_closed(self):
+        for value in (None, True, False, -1, 1.0, "0", {}, []):
+            with self.subTest(bad_count=value):
+                data = sample()
+                if value is None:
+                    del data["repositories"][0]["noncredit_record_count"]
+                else:
+                    data["repositories"][0]["noncredit_record_count"] = value
+                with self.assertRaisesRegex(ValueError, "invalid noncredit_record_count"):
+                    smc.public_projection(data)
+        for repo_index in range(3):
+            with self.subTest(missing_repo_index=repo_index):
+                data = sample()
+                del data["repositories"][repo_index]["noncredit_record_count"]
+                with self.assertRaises(ValueError):
+                    smc.public_projection(data)
 
     def test_noncompletion_states_are_retained(self):
         data = sample()
