@@ -928,7 +928,13 @@ def _next_link(value: str) -> str | None:
 
 
 def _is_allowed_devflow_issues_page(url: str) -> bool:
-    """Keep authenticated pagination on the one public devflow Issues endpoint."""
+    """Admit only bounded next pages for the exact public devflow Issues API.
+
+    GitHub may switch a Link from numbered pages to an opaque `after` cursor,
+    and its canonical numeric route may omit the initial default filters.
+    """
+    if not isinstance(url, str) or len(url) > 5000:
+        return False
     parsed = urlsplit(url)
     if (
         parsed.scheme != "https"
@@ -938,19 +944,51 @@ def _is_allowed_devflow_issues_page(url: str) -> bool:
     ):
         return False
     values = parse_qs(parsed.query, keep_blank_values=True)
-    if not {"state", "per_page"} <= set(values) or set(values) - {
-        "state", "per_page", "page"
-    }:
+    if set(values) - {"state", "per_page", "page", "after"}:
         return False
-    if values["state"] != ["open"] or values["per_page"] != ["100"]:
+    if values.get("state", ["open"]) != ["open"]:
+        return False
+    if values.get("per_page", ["100"]) != ["100"]:
         return False
     if "page" in values and (
         len(values["page"]) != 1
-        or not values["page"][0].isdigit()
-        or int(values["page"][0]) < 1
+        or re.fullmatch(r"[1-9][0-9]{0,4}", values["page"][0]) is None
     ):
         return False
+    if "after" in values and (
+        len(values["after"]) != 1
+        or re.fullmatch(r"[A-Za-z0-9_+/=-]{1,2048}", values["after"][0]) is None
+    ):
+        return False
+    if url != DEVFLOW_ISSUES_URL and not ({"page", "after"} & set(values)):
+        return False
     return True
+
+
+def _normalize_devflow_issues_page(url: str) -> str:
+    """Reassert initial open/100 filters when the trusted Link omits them."""
+    values = parse_qs(urlsplit(url).query, keep_blank_values=True)
+    missing = []
+    if "state" not in values:
+        missing.append("state=open")
+    if "per_page" not in values:
+        missing.append("per_page=100")
+    if not missing:
+        return url
+    return url + ("&" if "?" in url else "?") + "&".join(missing)
+
+
+def _rejected_devflow_page_shape(url: str) -> str:
+    """Diagnostic excludes full URL, query values and bearer credentials."""
+    parsed = urlsplit(url)
+    path_kind = (
+        "named" if parsed.path == "/repos/kinoko34077/devflow/issues"
+        else "numeric" if parsed.path == "/repositories/1385584542/issues"
+        else "other"
+    )
+    keys = parse_qs(parsed.query, keep_blank_values=True)
+    safe_keys = sorted(re.sub(r"[^A-Za-z0-9_-]", "_", key)[:32] for key in keys)
+    return f"path={path_kind};query_keys={','.join(safe_keys[:10])}"
 
 
 class _RejectIssuesRedirect(HTTPRedirectHandler):
@@ -980,7 +1018,11 @@ def _fetch_public_issues() -> list[Mapping[str, object]]:
     token = os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
     while url is not None:
         if not _is_allowed_devflow_issues_page(url):
-            raise ValueError("devflow Issues pagination URL is outside the trusted endpoint")
+            raise ValueError(
+                "devflow Issues pagination URL is outside the trusted endpoint "
+                + _rejected_devflow_page_shape(url)
+            )
+        url = _normalize_devflow_issues_page(url)
         if url in seen_urls or len(seen_urls) >= 20:
             raise ValueError("repeated or excessive devflow Issues pagination")
         seen_urls.add(url)
