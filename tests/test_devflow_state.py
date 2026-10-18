@@ -613,7 +613,8 @@ class DevflowStateTests(unittest.TestCase):
             def read(self):
                 return json.dumps(self._payload).encode("utf-8")
 
-        next_url = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2"
+        # GitHub's Link header may use the numeric repository ID route.
+        next_url = "https://api.github.com/repositories/1385584542/issues?page=2&per_page=100&state=open"
         responses = [
             FakeResponse([issue_payload()[0]], f'<{next_url}>; rel="next"'),
             FakeResponse([{**issue_payload()[0], "number": 60, "title": "[REPO] second-repo"}]),
@@ -629,6 +630,58 @@ class DevflowStateTests(unittest.TestCase):
 
         self.assertEqual([item["number"] for item in issues], [59, 60])
         self.assertEqual(requested[1], next_url)
+
+    def test_public_issue_fetch_rejects_repeated_same_page_link(self):
+        class FakeResponse:
+            def __init__(self, link):
+                self.headers = {"Link": link}
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return b"[]"
+
+        same_page = "https://api.github.com/repositories/1385584542/issues?page=2&per_page=100&state=open"
+        responses = [
+            FakeResponse(f'<{same_page}>; rel="next"'),
+            FakeResponse(f'<{same_page}>; rel="next"'),
+        ]
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=lambda request, timeout=3.0: responses.pop(0)):
+            with self.assertRaisesRegex(ValueError, "repeated or excessive"):
+                _fetch_public_issues()
+
+    def test_authenticated_redirect_is_refused_at_transport_boundary(self):
+        # Standard urllib redirects retain the original Authorization header.
+        # The public devflow API reader must refuse ANY redirect, including
+        # redirects to an external host, before another request can be made.
+        from urllib.request import Request
+        from repo_monitor.devflow_state import _RejectIssuesRedirect, urlopen
+
+        request = Request(
+            "https://api.github.com/repositories/1385584542/issues"
+            "?state=open&per_page=100&page=2",
+            headers={"Authorization": "Bearer fake-test-token"},
+        )
+        with self.assertRaisesRegex(HTTPError, "devflow Issues redirect refused"):
+            _RejectIssuesRedirect().redirect_request(
+                request, None, 302, "Found", {},
+                "https://redirect.example.invalid/capture",
+            )
+
+        class NoNetworkOpener:
+            def open(self, value, timeout=0):
+                self.last_request = value
+                self.timeout = timeout
+                raise RuntimeError("no network expected")
+
+        opener = NoNetworkOpener()
+        with patch("repo_monitor.devflow_state.build_opener", return_value=opener) as patched:
+            with self.assertRaisesRegex(RuntimeError, "no network expected"):
+                urlopen(request, timeout=3.0)
+            self.assertIsInstance(patched.call_args.args[0], _RejectIssuesRedirect)
+        self.assertIs(opener.last_request, request)
+        self.assertEqual(opener.timeout, 3.0)
 
     def test_public_issue_fetch_uses_explicit_actions_token_only_for_devflow(self):
         class FakeResponse:
@@ -677,6 +730,11 @@ class DevflowStateTests(unittest.TestCase):
             "https://api.github.com/repos/kinoko34077/private/issues?state=open&per_page=100&page=2",
             "https://api.github.com/repos/kinoko34077/devflow/issues?state=closed&per_page=100&page=2",
             "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=0",
+            "https://api.github.com/repositories/9999999999/issues?state=open&per_page=100&page=2",
+            "https://api.github.com/repositories/1385584542/issues?state=closed&per_page=100&page=2",
+            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&page=0",
+            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&admin=true",
+            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&page=2#x",
         ]
         for url in disallowed:
             with self.subTest(url=url):

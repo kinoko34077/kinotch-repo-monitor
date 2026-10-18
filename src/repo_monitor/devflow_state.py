@@ -10,9 +10,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, Mapping
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
+# GitHub Link responses may use the immutable numeric repository route.
+# Verified public devflow repository ID, not a wildcard for other repositories.
+DEVFLOW_ISSUES_PATHS = frozenset({
+    "/repos/kinoko34077/devflow/issues",
+    "/repositories/1385584542/issues",
+})
 CONTROL_PREFIX = "[REPO] "
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
@@ -926,7 +933,7 @@ def _is_allowed_devflow_issues_page(url: str) -> bool:
     if (
         parsed.scheme != "https"
         or parsed.netloc != "api.github.com"
-        or parsed.path != "/repos/kinoko34077/devflow/issues"
+        or parsed.path not in DEVFLOW_ISSUES_PATHS
         or parsed.fragment
     ):
         return False
@@ -946,15 +953,37 @@ def _is_allowed_devflow_issues_page(url: str) -> bool:
     return True
 
 
+class _RejectIssuesRedirect(HTTPRedirectHandler):
+    """Never forward a workflow token to a redirected HTTP origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise HTTPError(
+            req.full_url, code, "devflow Issues redirect refused", headers, fp
+        )
+
+
+def urlopen(request: Request, timeout: float = 3.0):
+    """No-redirect opener for the allowlisted GitHub Issues transport.
+
+    Existing unit tests patch this module-local urlopen to supply fake
+    responses. Each real request uses a new opener with redirects disabled.
+    """
+    return build_opener(_RejectIssuesRedirect()).open(request, timeout=timeout)
+
+
 def _fetch_public_issues() -> list[Mapping[str, object]]:
     url: str | None = DEVFLOW_ISSUES_URL
     issues: list[Mapping[str, object]] = []
+    seen_urls: set[str] = set()
     # Only the Pages Action explicitly provides this ephemeral, read-only
     # GitHub job token. Localhost usage remains public/anonymous by default.
     token = os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
     while url is not None:
         if not _is_allowed_devflow_issues_page(url):
             raise ValueError("devflow Issues pagination URL is outside the trusted endpoint")
+        if url in seen_urls or len(seen_urls) >= 20:
+            raise ValueError("repeated or excessive devflow Issues pagination")
+        seen_urls.add(url)
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
