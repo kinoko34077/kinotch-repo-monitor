@@ -598,64 +598,11 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(immediate_retry.repositories, failed.repositories)
         self.assertEqual(calls[0], 2)
 
-    def test_public_issue_fetch_follows_github_next_links(self):
+    def test_public_issue_fetch_uses_canonical_numbered_pages_not_link_header(self):
         class FakeResponse:
             def __init__(self, payload, link=""):
-                self._payload = payload
-                self.headers = {"Link": link}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(self._payload).encode("utf-8")
-
-        # GitHub's Link header may use the numeric repository ID route.
-        next_url = "https://api.github.com/repositories/1385584542/issues?page=2&per_page=100&state=open"
-        responses = [
-            FakeResponse([issue_payload()[0]], f'<{next_url}>; rel="next"'),
-            FakeResponse([{**issue_payload()[0], "number": 60, "title": "[REPO] second-repo"}]),
-        ]
-        requested = []
-
-        def fake_urlopen(request, timeout=3.0):
-            requested.append(request.full_url)
-            return responses.pop(0)
-
-        with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
-            issues = _fetch_public_issues()
-
-        self.assertEqual([item["number"] for item in issues], [59, 60])
-        self.assertEqual(requested[1], next_url)
-
-    def test_public_issue_fetch_rejects_repeated_same_page_link(self):
-        class FakeResponse:
-            def __init__(self, link):
-                self.headers = {"Link": link}
-            def __enter__(self):
-                return self
-            def __exit__(self, *_args):
-                return False
-            def read(self):
-                return b"[]"
-
-        same_page = "https://api.github.com/repositories/1385584542/issues?page=2&per_page=100&state=open"
-        responses = [
-            FakeResponse(f'<{same_page}>; rel="next"'),
-            FakeResponse(f'<{same_page}>; rel="next"'),
-        ]
-        with patch("repo_monitor.devflow_state.urlopen", side_effect=lambda request, timeout=3.0: responses.pop(0)):
-            with self.assertRaisesRegex(ValueError, "repeated or excessive"):
-                _fetch_public_issues()
-
-    def test_public_issue_fetch_allows_bounded_cursor_next_link_and_restores_request_invariants(self):
-        class FakeResponse:
-            def __init__(self, payload, link=""):
-                self.headers = {"Link": link}
                 self.payload = payload
+                self.headers = {"Link": link}
             def __enter__(self):
                 return self
             def __exit__(self, *_args):
@@ -663,66 +610,83 @@ class DevflowStateTests(unittest.TestCase):
             def read(self):
                 return json.dumps(self.payload).encode("utf-8")
 
-        # GitHub may omit default state/open or use after cursor pagination.
-        # Subsequent actual requests still carry the safe fixed values.
-        next_url = "https://api.github.com/repositories/1385584542/issues?after=Y3Vyc29yOnYyOkIw&pagesafe=never"
-        cursor_link = next_url.replace("&pagesafe=never", "&page=2")
+        hostile_link = '<https://evil.example.invalid/steal?token=test>; rel="next"'
         responses = [
-            FakeResponse([issue_payload()[0]], f'<{cursor_link}>; rel="next"'),
-            FakeResponse([{**issue_payload()[0], "number": 61, "title": "[REPO] cursor"}]),
+            FakeResponse([issue_payload()[0]] * 100, hostile_link),
+            FakeResponse([{**issue_payload()[0], "number": 60}], hostile_link),
         ]
         requests = []
         def fake_open(request, timeout=3.0):
             requests.append(request)
             return responses.pop(0)
-        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "test-only"}):
-            with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
-                actual = _fetch_public_issues()
-        self.assertEqual([x["number"] for x in actual], [59, 61])
-        self.assertEqual(
-            requests[1].full_url,
-            cursor_link + "&state=open&per_page=100",
-        )
-        self.assertTrue(all(r.host == "api.github.com" for r in requests))
-        self.assertTrue(all(r.get_header("Authorization") == "Bearer test-only" for r in requests))
 
-    def test_public_issue_fetch_rejects_bad_cursor_without_authenticated_second_request(self):
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "fake-test-token"}):
+            with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+                issues = _fetch_public_issues()
+
+        self.assertEqual(len(issues), 101)
+        self.assertEqual(issues[-1]["number"], 60)
+        self.assertEqual([r.full_url for r in requests], [
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=1",
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2",
+        ])
+        self.assertTrue(all(r.host == "api.github.com" for r in requests))
+        self.assertTrue(all(r.get_header("Authorization") == "Bearer fake-test-token" for r in requests))
+        self.assertTrue(all("evil.example" not in r.full_url for r in requests))
+
+    def test_public_issue_fetch_stops_on_short_page_ignoring_untrusted_link(self):
         class FakeResponse:
-            headers = {"Link": ""}
-            def __init__(self, next_url):
-                self.headers = {"Link": f'<{next_url}>; rel="next"'}
+            headers = {"Link": '<https://evil.example.invalid/leak>; rel="next"'}
             def __enter__(self):
                 return self
             def __exit__(self, *_args):
                 return False
             def read(self):
-                return b"[]"
+                return json.dumps(issue_payload()).encode("utf-8")
 
-        prefix = "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&page=2"
-        disallowed = [
-            prefix + "&after=",
-            prefix + "&after=a&after=b",
-            prefix + "&after=bad%26admin%3Dtrue",
-            prefix + "&after=" + ("A" * 2049),
-            prefix + "&before=Y3Vyc29y",
-            prefix + "&per_page=99",
-            prefix + "&state=closed",
-            "https://evil.invalid/repositories/1385584542/issues?after=ok",
-            "https://api.github.com/repositories/99999999/issues?after=ok",
-        ]
-        for next_url in disallowed:
-            with self.subTest(next_url=next_url[:100]):
-                requests = []
-                def fake_open(request, timeout=3.0):
-                    requests.append(request)
-                    return FakeResponse(next_url)
-                with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "fake-secret-token"}):
-                    with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
-                        with self.assertRaisesRegex(ValueError, "trusted endpoint") as error:
-                            _fetch_public_issues()
-                self.assertEqual(len(requests), 1)
-                self.assertNotIn("fake-secret-token", str(error.exception))
-                self.assertNotIn("bad%26admin", str(error.exception))
+        requests = []
+        def fake_open(request, timeout=3.0):
+            requests.append(request.full_url)
+            return FakeResponse()
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+            issues = _fetch_public_issues()
+        self.assertEqual(issues, issue_payload())
+        self.assertEqual(len(requests), 1)
+        self.assertTrue(requests[0].endswith("page=1"))
+
+    def test_public_issue_fetch_rejects_full_twentieth_page_not_partial(self):
+        class FakeResponse:
+            headers = {}
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps([issue_payload()[0]] * 100).encode("utf-8")
+
+        requests = []
+        def fake_open(request, timeout=3.0):
+            requests.append(request.full_url)
+            return FakeResponse()
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+            with self.assertRaisesRegex(ValueError, "excessive devflow Issues pagination"):
+                _fetch_public_issues()
+        self.assertEqual(len(requests), 20)
+        self.assertTrue(requests[0].endswith("page=1"))
+        self.assertTrue(requests[-1].endswith("page=20"))
+
+    def test_public_issue_fetch_rejects_oversized_response_page(self):
+        class FakeResponse:
+            headers = {}
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps([issue_payload()[0]] * 101).encode("utf-8")
+        with patch("repo_monitor.devflow_state.urlopen", return_value=FakeResponse()):
+            with self.assertRaisesRegex(ValueError, "unexpected devflow Issues page size"):
+                _fetch_public_issues()
 
     def test_authenticated_redirect_is_refused_at_transport_boundary(self):
         # Standard urllib redirects retain the original Authorization header.
@@ -783,45 +747,40 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(requests[0].host, "api.github.com")
         self.assertNotIn("test-ephemeral-token", requests[0].full_url)
 
-    def test_public_issue_fetch_rejects_crossorigin_and_crosspath_next_links(self):
+    def test_public_issue_fetch_never_uses_untrusted_next_url(self):
         class FakeResponse:
-            def __init__(self, next_link):
-                self.headers = {"Link": f'<{next_link}>; rel="next"'}
-
+            def __init__(self, link):
+                self.headers = {"Link": f'<{link}>; rel="next"'}
             def __enter__(self):
                 return self
-
             def __exit__(self, *_args):
                 return False
-
             def read(self):
                 return b"[]"
 
         disallowed = [
-            "https://evil.example/steal?state=open&per_page=100&page=2",
+            "https://evil.example.invalid/steal",
             "http://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2",
             "https://api.github.com/repos/kinoko34077/private/issues?state=open&per_page=100&page=2",
             "https://api.github.com/repos/kinoko34077/devflow/issues?state=closed&per_page=100&page=2",
-            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=0",
-            "https://api.github.com/repositories/9999999999/issues?state=open&per_page=100&page=2",
-            "https://api.github.com/repositories/1385584542/issues?state=closed&per_page=100&page=2",
-            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&page=0",
-            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&admin=true",
-            "https://api.github.com/repositories/1385584542/issues?state=open&per_page=100&page=2#x",
+            "https://api.github.com/repositories/9999999999/issues?after=not-trusted",
+            "https://api.github.com/repositories/1385584542/issues?after=Y3Vyc29yOnYyOkIw",
         ]
-        for url in disallowed:
-            with self.subTest(url=url):
+        for link in disallowed:
+            with self.subTest(link=link):
                 requests = []
-
-                def fake_urlopen(request, timeout=3.0):
-                    requests.append(request)
-                    return FakeResponse(url)
-
-                with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "test-token"}):
-                    with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_urlopen):
-                        with self.assertRaisesRegex(ValueError, "trusted endpoint"):
-                            _fetch_public_issues()
+                def fake_open(request, timeout=3.0):
+                    requests.append(request.full_url)
+                    return FakeResponse(link)
+                with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "fake-test-secret"}):
+                    with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+                        self.assertEqual(_fetch_public_issues(), [])
                 self.assertEqual(len(requests), 1)
+                self.assertEqual(
+                    requests[0],
+                    "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=1",
+                )
+                self.assertNotIn("fake-test-secret", requests[0])
 
     def test_public_issue_fetch_remains_anonymous_without_workflow_token(self):
         class FakeResponse:
