@@ -611,9 +611,16 @@ class DevflowStateTests(unittest.TestCase):
                 return json.dumps(self.payload).encode("utf-8")
 
         hostile_link = '<https://evil.example.invalid/steal?token=test>; rel="next"'
+        first_page = [
+            {**issue_payload()[0], "number": 1000 + n}
+            for n in range(100)
+        ]
+        last_page = [{**issue_payload()[0], "number": 60}]
         responses = [
-            FakeResponse([issue_payload()[0]] * 100, hostile_link),
-            FakeResponse([{**issue_payload()[0], "number": 60}], hostile_link),
+            FakeResponse(first_page, hostile_link),
+            FakeResponse(last_page, hostile_link),
+            FakeResponse(first_page, hostile_link),
+            FakeResponse(last_page, hostile_link),
         ]
         requests = []
         def fake_open(request, timeout=3.0):
@@ -624,9 +631,12 @@ class DevflowStateTests(unittest.TestCase):
             with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
                 issues = _fetch_public_issues()
 
-        self.assertEqual(len(issues), 101)
-        self.assertEqual(issues[-1]["number"], 60)
+        self.assertEqual([item["number"] for item in issues], [
+            *range(1000, 1100), 60,
+        ])
         self.assertEqual([r.full_url for r in requests], [
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=1",
+            "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2",
             "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=1",
             "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=2",
         ])
@@ -653,6 +663,105 @@ class DevflowStateTests(unittest.TestCase):
         self.assertEqual(issues, issue_payload())
         self.assertEqual(len(requests), 1)
         self.assertTrue(requests[0].endswith("page=1"))
+
+    def test_public_issue_fetch_rejects_missing_control_on_page_boundary_close(self):
+        class FakeResponse:
+            headers = {}
+            def __init__(self, payload):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        # A close between page 1 and page 2 shifts ID 50 to page 1.
+        # The initial walk returns 101 items; the stable next walk returns 100.
+        base = [{**issue_payload()[0], "number": n} for n in range(101, 201)]
+        shifted = base[1:] + [{**issue_payload()[0], "number": 50}]
+        responses = iter([
+            FakeResponse(base), FakeResponse([{**issue_payload()[0], "number": 50}]),
+            FakeResponse(shifted), FakeResponse([]),
+        ])
+        requests = []
+        def fake_open(request, timeout=3.0):
+            requests.append(request.full_url)
+            return next(responses)
+
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+            with self.assertRaisesRegex(ValueError, "changed during pagination"):
+                _fetch_public_issues()
+        self.assertEqual(len(requests), 4)
+
+    def test_public_issue_fetch_rejects_open_issue_during_page_boundary(self):
+        class FakeResponse:
+            headers = {}
+            def __init__(self, payload):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        first = [{**issue_payload()[0], "number": n} for n in range(1000, 1100)]
+        last = [{**issue_payload()[0], "number": 1}]
+        new = {**issue_payload()[0], "number": 2000}
+        responses = iter([
+            FakeResponse(first), FakeResponse(last),
+            FakeResponse([new, *first[:99]]), FakeResponse([first[99], *last]),
+        ])
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=lambda *a, **k: next(responses)):
+            with self.assertRaisesRegex(ValueError, "changed during pagination"):
+                _fetch_public_issues()
+
+    def test_public_issue_fetch_rejects_duplicate_identity_across_pages(self):
+        class FakeResponse:
+            headers = {}
+            def __init__(self, payload):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        first = [{**issue_payload()[0], "number": n} for n in range(1000, 1100)]
+        responses = iter([FakeResponse(first), FakeResponse([first[5]])])
+        with patch("repo_monitor.devflow_state.urlopen", side_effect=lambda *a, **k: next(responses)):
+            with self.assertRaisesRegex(ValueError, "duplicate devflow Issue identity"):
+                _fetch_public_issues()
+
+    def test_public_issue_fetch_rejects_failed_or_malformed_second_page(self):
+        class FakeResponse:
+            headers = {}
+            def __init__(self, payload):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        first = [{**issue_payload()[0], "number": n} for n in range(1000, 1100)]
+        for bad in ("not-list", "http-error"):
+            with self.subTest(bad=bad):
+                requests = []
+                def fake_open(request, timeout=3.0):
+                    requests.append(request.full_url)
+                    if len(requests) == 1:
+                        return FakeResponse(first)
+                    if bad == "http-error":
+                        raise HTTPError(request.full_url, 502, "upstream error", {}, None)
+                    return FakeResponse({"error": "not an Issues list"})
+                with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+                    with self.assertRaises((ValueError, HTTPError)):
+                        _fetch_public_issues()
+                self.assertEqual(len(requests), 2)
 
     def test_public_issue_fetch_rejects_full_twentieth_page_not_partial(self):
         class FakeResponse:
