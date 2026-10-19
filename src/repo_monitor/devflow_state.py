@@ -9,17 +9,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, Mapping
-from urllib.parse import parse_qs, urlsplit
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
-# GitHub Link responses may use the immutable numeric repository route.
-# Verified public devflow repository ID, not a wildcard for other repositories.
-DEVFLOW_ISSUES_PATHS = frozenset({
-    "/repos/kinoko34077/devflow/issues",
-    "/repositories/1385584542/issues",
-})
+DEVFLOW_ISSUES_PAGE_SIZE = 100
+DEVFLOW_ISSUES_MAX_PAGES = 20
 CONTROL_PREFIX = "[REPO] "
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
@@ -919,78 +914,6 @@ def parse_control_issues(
     return states
 
 
-def _next_link(value: str) -> str | None:
-    for part in (value or "").split(","):
-        match = re.fullmatch(r'\s*<([^>]+)>\s*;\s*rel="([^"]+)"\s*', part)
-        if match and match.group(2) == "next":
-            return match.group(1)
-    return None
-
-
-def _is_allowed_devflow_issues_page(url: str) -> bool:
-    """Admit only bounded next pages for the exact public devflow Issues API.
-
-    GitHub may switch a Link from numbered pages to an opaque `after` cursor,
-    and its canonical numeric route may omit the initial default filters.
-    """
-    if not isinstance(url, str) or len(url) > 5000:
-        return False
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.netloc != "api.github.com"
-        or parsed.path not in DEVFLOW_ISSUES_PATHS
-        or parsed.fragment
-    ):
-        return False
-    values = parse_qs(parsed.query, keep_blank_values=True)
-    if set(values) - {"state", "per_page", "page", "after"}:
-        return False
-    if values.get("state", ["open"]) != ["open"]:
-        return False
-    if values.get("per_page", ["100"]) != ["100"]:
-        return False
-    if "page" in values and (
-        len(values["page"]) != 1
-        or re.fullmatch(r"[1-9][0-9]{0,4}", values["page"][0]) is None
-    ):
-        return False
-    if "after" in values and (
-        len(values["after"]) != 1
-        or re.fullmatch(r"[A-Za-z0-9_+/=-]{1,2048}", values["after"][0]) is None
-    ):
-        return False
-    if url != DEVFLOW_ISSUES_URL and not ({"page", "after"} & set(values)):
-        return False
-    return True
-
-
-def _normalize_devflow_issues_page(url: str) -> str:
-    """Reassert initial open/100 filters when the trusted Link omits them."""
-    values = parse_qs(urlsplit(url).query, keep_blank_values=True)
-    missing = []
-    if "state" not in values:
-        missing.append("state=open")
-    if "per_page" not in values:
-        missing.append("per_page=100")
-    if not missing:
-        return url
-    return url + ("&" if "?" in url else "?") + "&".join(missing)
-
-
-def _rejected_devflow_page_shape(url: str) -> str:
-    """Diagnostic excludes full URL, query values and bearer credentials."""
-    parsed = urlsplit(url)
-    path_kind = (
-        "named" if parsed.path == "/repos/kinoko34077/devflow/issues"
-        else "numeric" if parsed.path == "/repositories/1385584542/issues"
-        else "other"
-    )
-    keys = parse_qs(parsed.query, keep_blank_values=True)
-    safe_keys = sorted(re.sub(r"[^A-Za-z0-9_-]", "_", key)[:32] for key in keys)
-    return f"path={path_kind};query_keys={','.join(safe_keys[:10])}"
-
-
 class _RejectIssuesRedirect(HTTPRedirectHandler):
     """Never forward a workflow token to a redirected HTTP origin."""
 
@@ -1010,38 +933,42 @@ def urlopen(request: Request, timeout: float = 3.0):
 
 
 def _fetch_public_issues() -> list[Mapping[str, object]]:
-    url: str | None = DEVFLOW_ISSUES_URL
+    """Read the exact public devflow endpoint via a bounded numbered-page walk.
+
+    Live GitHub REST probes on 2026-10-19 returned 100, 7 and 0 issues
+    for pages 1, 2 and 3.  GitHub pagination Link headers have previously
+    pointed to shapes that the strict allowlist rejected.  They are not
+    needed: build every URL locally from the fixed trusted endpoint and
+    never request an untrusted Link target, including with workflow tokens.
+
+    A short page terminates. A full last permitted page fails closed rather
+    than return a potentially incomplete snapshot.
+    """
     issues: list[Mapping[str, object]] = []
-    seen_urls: set[str] = set()
-    # Only the Pages Action explicitly provides this ephemeral, read-only
-    # GitHub job token. Localhost usage remains public/anonymous by default.
     token = os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
-    while url is not None:
-        if not _is_allowed_devflow_issues_page(url):
-            raise ValueError(
-                "devflow Issues pagination URL is outside the trusted endpoint "
-                + _rejected_devflow_page_shape(url)
-            )
-        url = _normalize_devflow_issues_page(url)
-        if url in seen_urls or len(seen_urls) >= 20:
-            raise ValueError("repeated or excessive devflow Issues pagination")
-        seen_urls.add(url)
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "KiNoTchRepoMonitor/0.3",
-        }
-        if token:
-            headers["Authorization"] = "Bearer " + token
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "KiNoTchRepoMonitor/0.3",
+    }
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    for page in range(1, DEVFLOW_ISSUES_MAX_PAGES + 1):
+        # All URL elements other than the bounded integer are immutable.
+        url = f"{DEVFLOW_ISSUES_URL}&page={page}"
         request = Request(url, headers=headers)
         with urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read().decode("utf-8"))
-            next_url = _next_link(response.headers.get("Link", ""))
         if not isinstance(payload, list):
             raise ValueError("devflow issues response must be a list")
+        if len(payload) > DEVFLOW_ISSUES_PAGE_SIZE:
+            raise ValueError("unexpected devflow Issues page size")
+        if len(payload) == DEVFLOW_ISSUES_PAGE_SIZE and page == DEVFLOW_ISSUES_MAX_PAGES:
+            raise ValueError("excessive devflow Issues pagination")
         issues.extend(item for item in payload if isinstance(item, dict))
-        url = next_url
-    return issues
+        if len(payload) < DEVFLOW_ISSUES_PAGE_SIZE:
+            return issues
+    raise ValueError("excessive devflow Issues pagination")
 
 
 class DevflowStateProvider:
