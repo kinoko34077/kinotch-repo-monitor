@@ -933,18 +933,15 @@ def urlopen(request: Request, timeout: float = 3.0):
 
 
 def _fetch_public_issues() -> list[Mapping[str, object]]:
-    """Read the exact public devflow endpoint via a bounded numbered-page walk.
+    """Read public devflow Issues with a bounded, stable, fixed-URL walk.
 
-    Live GitHub REST probes on 2026-10-19 returned 100, 7 and 0 issues
-    for pages 1, 2 and 3.  GitHub pagination Link headers have previously
-    pointed to shapes that the strict allowlist rejected.  They are not
-    needed: build every URL locally from the fixed trusted endpoint and
-    never request an untrusted Link target, including with workflow tokens.
-
-    A short page terminates. A full last permitted page fails closed rather
-    than return a potentially incomplete snapshot.
+    Never interpret GitHub's Link header as a request URL. A numbered-page
+    walk can silently skip an Issue if an open Issue closes while crossing a
+    page boundary. For multi-page responses, compare the *ordered issue IDs*
+    obtained on two independent walks and publish only the second verified
+    collection. Benign text edits need not change issue IDs or sorting.
+    This reduces a pagination-race risk, not a transactional snapshot guarantee.
     """
-    issues: list[Mapping[str, object]] = []
     token = os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
     headers = {
         "Accept": "application/vnd.github+json",
@@ -953,22 +950,46 @@ def _fetch_public_issues() -> list[Mapping[str, object]]:
     }
     if token:
         headers["Authorization"] = "Bearer " + token
-    for page in range(1, DEVFLOW_ISSUES_MAX_PAGES + 1):
-        # All URL elements other than the bounded integer are immutable.
-        url = f"{DEVFLOW_ISSUES_URL}&page={page}"
-        request = Request(url, headers=headers)
-        with urlopen(request, timeout=3.0) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, list):
-            raise ValueError("devflow issues response must be a list")
-        if len(payload) > DEVFLOW_ISSUES_PAGE_SIZE:
-            raise ValueError("unexpected devflow Issues page size")
-        if len(payload) == DEVFLOW_ISSUES_PAGE_SIZE and page == DEVFLOW_ISSUES_MAX_PAGES:
-            raise ValueError("excessive devflow Issues pagination")
-        issues.extend(item for item in payload if isinstance(item, dict))
-        if len(payload) < DEVFLOW_ISSUES_PAGE_SIZE:
-            return issues
-    raise ValueError("excessive devflow Issues pagination")
+
+    def collect_once() -> tuple[list[Mapping[str, object]], int]:
+        issues: list[Mapping[str, object]] = []
+        for page in range(1, DEVFLOW_ISSUES_MAX_PAGES + 1):
+            url = f"{DEVFLOW_ISSUES_URL}&page={page}"
+            request = Request(url, headers=headers)
+            with urlopen(request, timeout=3.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, list):
+                raise ValueError("devflow issues response must be a list")
+            if len(payload) > DEVFLOW_ISSUES_PAGE_SIZE:
+                raise ValueError("unexpected devflow Issues page size")
+            if any(not isinstance(item, dict) for item in payload):
+                raise ValueError("devflow Issues page contains an invalid record")
+            if len(payload) == DEVFLOW_ISSUES_PAGE_SIZE and page == DEVFLOW_ISSUES_MAX_PAGES:
+                raise ValueError("excessive devflow Issues pagination")
+            issues.extend(payload)
+            if len(payload) < DEVFLOW_ISSUES_PAGE_SIZE:
+                return issues, page
+        raise ValueError("excessive devflow Issues pagination")
+
+    def ordered_identities(issues: list[Mapping[str, object]]) -> tuple[int, ...]:
+        identities: list[int] = []
+        for item in issues:
+            number = item.get("number")
+            if type(number) is not int or number < 1:
+                raise ValueError("invalid devflow Issue identity")
+            identities.append(number)
+        if len(set(identities)) != len(identities):
+            raise ValueError("duplicate devflow Issue identity")
+        return tuple(identities)
+
+    first, pages = collect_once()
+    initial_ids = ordered_identities(first)
+    if pages == 1:
+        return first
+    second, _ = collect_once()
+    if initial_ids != ordered_identities(second):
+        raise ValueError("devflow Issues changed during pagination")
+    return second
 
 
 class DevflowStateProvider:
@@ -977,11 +998,22 @@ class DevflowStateProvider:
         *,
         fetcher: Callable[[], list[Mapping[str, object]]] = _fetch_public_issues,
         clock: Callable[[], float] = time.time,
-        ttl_seconds: float = 120.0,
+        ttl_seconds: float | None = None,
         retry_seconds: float = 30.0,
     ) -> None:
         self._fetcher = fetcher
         self._clock = clock
+        if ttl_seconds is None:
+            # An unauthenticated two-page verified read consumes four GitHub
+            # requests. Every 120 s that is ~120/hour, twice GitHub's
+            # anonymous 60/hour limit, even before other local GitHub users.
+            # The 600 s built-in default is ~24/hour for today's two pages.
+            # Authenticated Pages and caller-configured TTL remain unchanged.
+            anonymous_public_reader = (
+                fetcher is _fetch_public_issues
+                and not os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
+            )
+            ttl_seconds = 600.0 if anonymous_public_reader else 120.0
         self._ttl_seconds = max(1.0, float(ttl_seconds))
         self._retry_seconds = max(1.0, float(retry_seconds))
         self._lock = threading.RLock()

@@ -124,6 +124,12 @@ PR #33 completed the four deferred P3 follow-ups from Issue #27 without changing
 
 Focused TDD established RED on all four boundaries before production changes, then GREEN 25/25. Final-tree `verify.cmd` completed 90/90 unit/regression tests plus launcher/localhost/browser checks; exact-head PR Verify run `36517999746` succeeded, and post-merge main Verify run `36518201225` also succeeded on `26500ed383a2bb1b8fde17757980db3692cb9ad9`.
 
+### Public devflow Issue reads — current state and consistency guard (2026-10-19)
+
+The older Issue #30 bullet above describes the **historical PR #33 implementation**, not the current transport. [Incident #84](https://github.com/kinoko34077/kinotch-repo-monitor/issues/84) was recovered through independently reviewed/merged PR #88 at `main@28d3570710cc2faf6aa5fcb7404a42ff8fa84be2`: the Pages reader now constructs only fixed GitHub `/repos/kinoko34077/devflow/issues?state=open&per_page=100&page=N` requests and **ignores untrusted `Link` URLs**. Hosted Pages build/deploy succeeded in run #39213262696 attempt 2 after devflow's Control #404 canonical cache generation was repaired; publicly served root, `/smc/`, and `state.json` all returned HTTP 200 and had exact SHA-256 equality to the published GitHub artifact. The public site is a read-only static snapshot, not an audit Claim or live feed.
+
+[Follow-up Issue #89](https://github.com/kinoko34077/kinotch-repo-monitor/issues/89) tracks a separate pagination race: if open Issues move across a page boundary during collection, a single walk can silently omit a Control. Its patch adds an ordered-ID verification **second pass only for multi-page reads** and refuses duplicates/identity drift rather than publishing potentially incomplete state; this is a fail-closed consistency check, **not** an atomic GitHub snapshot guarantee. To keep the two-pass reader below the anonymous API budget in the observed two-page case, the built-in unauthenticated local-provider default refresh interval is 600 seconds (about 24 requests/hour at four requests per refresh), rather than 120 seconds; authenticated Pages reads, explicit TTL overrides and custom fetchers retain their existing intervals. The 60/hour GitHub anonymous limit is shared by other clients using the same IP, so this is a budget margin, not a universal guarantee. Accept only after current-head CI, independent review and post-merge Pages verification.
+
 ### Stable browser reconciliation
 
 - cards are keyed by repository path identity and reused across routine refresh.
