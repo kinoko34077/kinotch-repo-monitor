@@ -915,6 +915,81 @@ class DevflowStateTests(unittest.TestCase):
                 _fetch_public_issues()
         self.assertIsNone(requested[0].get_header("Authorization"))
 
+    def test_public_fetcher_default_ttl_budgets_anonymous_requests(self):
+        class FakeResponse:
+            headers = {}
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return b"[]"
+
+        now = [1000.0]
+        calls = []
+        def fake_open(request, timeout=3.0):
+            calls.append(request)
+            return FakeResponse()
+
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": ""}):
+            with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+                provider = DevflowStateProvider(clock=lambda: now[0])
+                self.assertEqual(provider._ttl_seconds, 600.0)
+                provider.snapshot()
+                self.assertEqual(len(calls), 1)
+                for moment in (1120.0, 1300.0, 1599.0):
+                    now[0] = moment
+                    provider.snapshot()
+                self.assertEqual(len(calls), 1)
+                now[0] = 1600.0
+                provider.snapshot()
+                self.assertEqual(len(calls), 2)
+
+    def test_public_fetcher_default_ttl_keeps_authenticated_or_explicit_refresh(self):
+        now = [1000.0]
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": "ephemeral"}):
+            token_provider = DevflowStateProvider(clock=lambda: now[0])
+            self.assertEqual(token_provider._ttl_seconds, 120.0)
+        with patch.dict(os.environ, {"REPO_MONITOR_PUBLIC_READ_TOKEN": ""}):
+            explicit_provider = DevflowStateProvider(clock=lambda: now[0], ttl_seconds=120.0)
+            self.assertEqual(explicit_provider._ttl_seconds, 120.0)
+        # A custom fetcher is not necessarily backed by the GitHub rate limit.
+        custom_provider = DevflowStateProvider(fetcher=lambda: [], clock=lambda: now[0])
+        self.assertEqual(custom_provider._ttl_seconds, 120.0)
+
+    def test_public_issue_fetch_rejects_second_walk_downstream_errors(self):
+        class FakeResponse:
+            headers = {}
+            def __init__(self, payload):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        first = [{**issue_payload()[0], "number": n} for n in range(1000, 1100)]
+        last = [{**issue_payload()[0], "number": 11}]
+        for kind in ("http-error", "non-list", "non-mapping"):
+            with self.subTest(kind=kind):
+                requests = []
+                def fake_open(request, timeout=3.0):
+                    requests.append(request.full_url)
+                    if len(requests) in (1, 3):
+                        return FakeResponse(first)
+                    if len(requests) == 2:
+                        return FakeResponse(last)
+                    if kind == "http-error":
+                        raise HTTPError(request.full_url, 502, "failed page", {}, None)
+                    if kind == "non-list":
+                        return FakeResponse({"error": "bad second walk"})
+                    return FakeResponse(["invalid record"])
+                with patch("repo_monitor.devflow_state.urlopen", side_effect=fake_open):
+                    with self.assertRaises((HTTPError, ValueError)):
+                        _fetch_public_issues()
+                self.assertEqual([u.rsplit("=", 1)[-1] for u in requests], ["1", "2", "1", "2"])
+
     def test_provider_honors_rate_limit_reset_before_retrying(self):
         calls = [0]
         now = [1000.0]
