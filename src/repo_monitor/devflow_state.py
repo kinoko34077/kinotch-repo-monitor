@@ -998,11 +998,22 @@ class DevflowStateProvider:
         *,
         fetcher: Callable[[], list[Mapping[str, object]]] = _fetch_public_issues,
         clock: Callable[[], float] = time.time,
-        ttl_seconds: float = 120.0,
+        ttl_seconds: float | None = None,
         retry_seconds: float = 30.0,
     ) -> None:
         self._fetcher = fetcher
         self._clock = clock
+        if ttl_seconds is None:
+            # An unauthenticated two-page verified read consumes four GitHub
+            # requests. Every 120 s that is ~120/hour, twice GitHub's
+            # anonymous 60/hour limit, even before other local GitHub users.
+            # The 600 s built-in default is ~24/hour for today's two pages.
+            # Authenticated Pages and caller-configured TTL remain unchanged.
+            anonymous_public_reader = (
+                fetcher is _fetch_public_issues
+                and not os.environ.get("REPO_MONITOR_PUBLIC_READ_TOKEN", "").strip()
+            )
+            ttl_seconds = 600.0 if anonymous_public_reader else 120.0
         self._ttl_seconds = max(1.0, float(ttl_seconds))
         self._retry_seconds = max(1.0, float(retry_seconds))
         self._lock = threading.RLock()
