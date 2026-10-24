@@ -82,8 +82,20 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_collection }}" == "true" ]]; then
             scan_args+=(--all)
           fi
+          # Never publish private source repository names into public Actions logs.
+          # A numeric index corresponds to the private archive's source inventory.
           if ! python -m history_archive.fleet_cli \
-              --root . --sources config/fleet-repositories.txt "${scan_args[@]}"; then
+              --root . --sources config/fleet-repositories.txt "${scan_args[@]}" \
+              | python -c 'import sys,json; n=0
+for line in sys.stdin:
+    try:
+        item=json.loads(line)
+        n += 1
+        safe={k:v for k,v in item.items() if k not in ("repository","error","path","source")}
+        if "status" in safe: safe["source_index"]=n
+        print(json.dumps(safe),flush=True)
+    except (ValueError,TypeError):
+        print("collector output redacted",flush=True)'; then
             # Even a partially failing fleet scan must persist successfully
             # retrieved items; the final step still marks this run as failed.
             echo "FLEET_SCAN_FAILED=1" >> "$GITHUB_ENV"
