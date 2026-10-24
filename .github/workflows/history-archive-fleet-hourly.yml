@@ -88,6 +88,8 @@ jobs:
           git config user.email "github-history-archive-automation@users.noreply.github.com"
           total="$(grep -cvE '^[[:space:]]*(#|$)' config/fleet-repositories.txt)"
           failures=0
+          success_count=0
+          recovered_count=0
           scan_mode=hourly
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && ( "${{ inputs.full_collection }}" == "true" || "${{ inputs.tail_collection }}" == "true" ) ]] || [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "37 4 * * *" ]]; then
             scan_mode=tail
@@ -101,6 +103,7 @@ jobs:
                   --sources config/fleet-repositories.txt "${scan_args[@]}" --source-index "$index" 2>&1 \
                   | jq -Rc 'try (fromjson | del(.repository, .error, .path, .source)) catch {"collector_output":"redacted"}'; then
                 scanned=1
+                if [[ "$scan_attempt" -gt 1 ]]; then recovered_count=$((recovered_count + 1)); fi
                 break
               fi
               echo "::warning::Source index $index scan failed (attempt $scan_attempt/3)."
@@ -108,7 +111,9 @@ jobs:
                 sleep "$((scan_attempt * 15))"
               fi
             done
-            if [[ "$scanned" -ne 1 ]]; then
+            if [[ "$scanned" -eq 1 ]]; then
+              success_count=$((success_count + 1))
+            else
               failures=$((failures + 1))
               echo "::error::Source index $index could not be scanned after three attempts."
             fi
@@ -136,6 +141,15 @@ jobs:
             fi
             echo "Fleet $scan_mode checkpoint $index/$total processed."
           done
+          {
+            echo "### Archive fleet collection receipt"
+            echo "- Mode: $scan_mode"
+            echo "- Configured sources: $total"
+            echo "- Succeeded: $success_count"
+            echo "- Recovered after retry: $recovered_count"
+            echo "- Failed after retries: $failures"
+            echo "- Archive checkpoint writes: see committed archive history"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$failures" -ne 0 ]]; then
             echo "::error::$failures sources were not completely scanned."
             exit 1
