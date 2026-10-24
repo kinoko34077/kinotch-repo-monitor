@@ -18,21 +18,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - name: Assert distinct source-read and archive-write apps are configured
+      - name: Assert existing archive GitHub App is configured
         shell: bash
         env:
-          SOURCE_ID: ${{ vars.HISTORY_FLEET_READ_APP_CLIENT_ID }}
-          SOURCE_KEY: ${{ secrets.HISTORY_FLEET_READ_APP_PRIVATE_KEY }}
+          SOURCE_ID: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          SOURCE_KEY: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
           ARCHIVE_ID: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
           ARCHIVE_KEY: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           if [[ -z "$SOURCE_ID" || -z "$SOURCE_KEY" ]]; then
-            echo "::error::The fleet Issues-read GitHub App is not configured in this runner."
+            echo "::error::The shared GitHub App is not configured in this runner."
             exit 1
           fi
           if [[ -z "$ARCHIVE_ID" || -z "$ARCHIVE_KEY" ]]; then
-            echo "::error::The archive Contents-write GitHub App is not configured in this runner."
+            echo "::error::The shared GitHub App is not configured in this runner."
             exit 1
           fi
 
@@ -40,8 +40,8 @@ jobs:
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: fleet-source
         with:
-          client-id: ${{ vars.HISTORY_FLEET_READ_APP_CLIENT_ID }}
-          private-key: ${{ secrets.HISTORY_FLEET_READ_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
           owner: kinoko34077
           permission-issues: read
 
