@@ -3,10 +3,16 @@ name: Hourly fleet edit-history preservation
 on:
   schedule:
     - cron: "11 * * * *"
+    - cron: "37 4 * * *" # daily below-threshold tail flush; separate from hourly
   workflow_dispatch:
     inputs:
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
+        type: boolean
+        required: false
+        default: false
+      tail_collection:
+        description: 'Run an explicit below-threshold tail flush; uses durable per-source checkpoints'
         type: boolean
         required: false
         default: false
@@ -70,8 +76,8 @@ jobs:
           path: history-archive
           persist-credentials: true
 
-      - name: Full archive sweep with per-repository durable commits
-        if: github.event_name == 'workflow_dispatch' && inputs.full_collection
+      - name: Full or daily tail sweep with per-repository durable commits
+        if: (github.event_name == 'workflow_dispatch' && (inputs.full_collection || inputs.tail_collection)) || (github.event_name == 'schedule' && github.event.schedule == '37 4 * * *')
         shell: bash
         working-directory: history-archive
         env:
@@ -119,7 +125,7 @@ jobs:
           fi
 
       - name: Scan all registered sources and save threshold batches
-        if: github.event_name != 'workflow_dispatch' || !inputs.full_collection
+        if: (github.event_name != 'workflow_dispatch' || (!inputs.full_collection && !inputs.tail_collection)) && (github.event_name != 'schedule' || github.event.schedule != '37 4 * * *')
         shell: bash
         working-directory: history-archive
         env:
