@@ -3,6 +3,9 @@ name: Hourly fleet edit-history preservation
 on:
   schedule:
     - cron: "11 * * * *"
+  pull_request:
+    paths:
+      - ".github/workflows/history-archive-fleet-hourly.yml"
   workflow_dispatch:
     inputs:
       full_collection:
@@ -21,6 +24,7 @@ permissions:
 
 jobs:
   archive-fleet:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -129,3 +133,37 @@ jobs:
             echo "::error::At least one source could not be scanned; partial evidence was preserved."
             exit 1
           fi
+
+  validate-private-archive:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Create existing App token restricted to archive checkout
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-checkout
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: read
+      - name: Checkout exact archive PR implementation under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: 4da800ba5bb701f778981df70cc0f3e10ea530fc
+          token: ${{ steps.archive-checkout.outputs.token }}
+          path: private-archive-verify
+          persist-credentials: false
+      - name: Python archive code tests and syntax
+        working-directory: private-archive-verify
+        env:
+          PYTHONPATH: src
+        run: |
+          python --version
+          python -m unittest discover -s tests -v
+          python -m compileall -q src tests
+          python -m history_archive.fleet_cli --help
