@@ -1,0 +1,121 @@
+name: Hourly fleet edit-history preservation
+
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+
+# A single trusted public runner handles the fleet; source repos need no workflows.
+concurrency:
+  group: history-archive-hourly-fleet
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  archive-fleet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Assert distinct source-read and archive-write apps are configured
+        shell: bash
+        env:
+          SOURCE_ID: ${{ vars.HISTORY_FLEET_READ_APP_CLIENT_ID }}
+          SOURCE_KEY: ${{ secrets.HISTORY_FLEET_READ_APP_PRIVATE_KEY }}
+          ARCHIVE_ID: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          ARCHIVE_KEY: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SOURCE_ID" || -z "$SOURCE_KEY" ]]; then
+            echo "::error::The fleet Issues-read GitHub App is not configured in this runner."
+            exit 1
+          fi
+          if [[ -z "$ARCHIVE_ID" || -z "$ARCHIVE_KEY" ]]; then
+            echo "::error::The archive Contents-write GitHub App is not configured in this runner."
+            exit 1
+          fi
+
+      - name: Create source Issues-read token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: fleet-source
+        with:
+          client-id: ${{ vars.HISTORY_FLEET_READ_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_FLEET_READ_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+
+      - name: Create archive Contents-write token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-write
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+
+      - name: Check out current private archive and shared collector
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-archive
+          persist-credentials: true
+
+      - name: Scan all registered sources and save threshold batches
+        shell: bash
+        working-directory: history-archive
+        env:
+          FLEET_SOURCE_TOKEN: ${{ steps.fleet-source.outputs.token }}
+        run: |
+          set -euo pipefail
+          export PYTHONPATH=src
+          if ! python -m history_archive.fleet_cli \
+              --root . --sources config/fleet-repositories.txt; then
+            # Even a partially failing fleet scan must persist successfully
+            # retrieved items; the final step still marks this run as failed.
+            echo "FLEET_SCAN_FAILED=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Commit only archive evidence with bounded contention retries
+        shell: bash
+        working-directory: history-archive
+        run: |
+          set -euo pipefail
+          git add -A -- archive/ tracking/ || git add -A -- archive/
+          if git diff --cached --quiet; then
+            echo "No new history records to commit."
+            exit 0
+          fi
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(archive|tracking)/' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "::error::Unexpected staged path outside archive/tracking."
+            exit 2
+          fi
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          git commit -m "archive: hourly GitHub fleet edit history"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort >/dev/null 2>&1 || true
+            if [[ "$attempt" -eq 4 ]]; then
+              echo "::error::Archive push failed after four attempts."
+              exit 1
+            fi
+            sleep "$((attempt * 2))"
+          done
+
+      - name: Fail run if a source was not fully checked
+        if: always()
+        shell: bash
+        env:
+          FLEET_SCAN_FAILED: ${{ env.FLEET_SCAN_FAILED }}
+        run: |
+          if [[ "$FLEET_SCAN_FAILED" == "1" ]]; then
+            echo "::error::At least one source could not be scanned; partial evidence was preserved."
+            exit 1
+          fi
