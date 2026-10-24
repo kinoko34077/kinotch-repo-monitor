@@ -76,8 +76,7 @@ jobs:
           path: history-archive
           persist-credentials: true
 
-      - name: Full or daily tail sweep with per-repository durable commits
-        if: (github.event_name == 'workflow_dispatch' && (inputs.full_collection || inputs.tail_collection)) || (github.event_name == 'schedule' && github.event.schedule == '37 4 * * *')
+      - name: Fleet sweep with per-repository retries and durable checkpoints
         shell: bash
         working-directory: history-archive
         env:
@@ -89,11 +88,17 @@ jobs:
           git config user.email "github-history-archive-automation@users.noreply.github.com"
           total="$(grep -cvE '^[[:space:]]*(#|$)' config/fleet-repositories.txt)"
           failures=0
+          scan_mode=hourly
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && ( "${{ inputs.full_collection }}" == "true" || "${{ inputs.tail_collection }}" == "true" ) ]] || [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "37 4 * * *" ]]; then
+            scan_mode=tail
+          fi
+          scan_args=()
+          if [[ "$scan_mode" == "tail" ]]; then scan_args+=(--all); fi
           for index in $(seq 1 "$total"); do
             scanned=0
             for scan_attempt in 1 2 3; do
               if python -m history_archive.fleet_cli --root . \
-                  --sources config/fleet-repositories.txt --all --source-index "$index" 2>&1 \
+                  --sources config/fleet-repositories.txt "${scan_args[@]}" --source-index "$index" 2>&1 \
                   | jq -Rc 'try (fromjson | del(.repository, .error, .path, .source)) catch {"collector_output":"redacted"}'; then
                 scanned=1
                 break
@@ -114,7 +119,7 @@ jobs:
                 echo "::error::Unexpected staged path outside archive/tracking."
                 exit 2
               fi
-              git commit -qm "archive: full sweep checkpoint $index/$total"
+              git commit -qm "archive: $scan_mode checkpoint $index/$total"
               pushed=0
               for attempt in 1 2 3 4; do
                 if git pull -q --rebase origin main >/dev/null 2>&1 && git push -q origin HEAD:main >/dev/null 2>&1; then
@@ -129,65 +134,12 @@ jobs:
                 exit 1
               fi
             fi
-            echo "Full sweep checkpoint $index/$total processed."
+            echo "Fleet $scan_mode checkpoint $index/$total processed."
           done
           if [[ "$failures" -ne 0 ]]; then
             echo "::error::$failures sources were not completely scanned."
             exit 1
           fi
-
-      - name: Scan all registered sources and save threshold batches
-        if: (github.event_name != 'workflow_dispatch' || (!inputs.full_collection && !inputs.tail_collection)) && (github.event_name != 'schedule' || github.event.schedule != '37 4 * * *')
-        shell: bash
-        working-directory: history-archive
-        env:
-          FLEET_SOURCE_TOKEN: ${{ steps.fleet-source.outputs.token }}
-        run: |
-          set -euo pipefail
-          export PYTHONPATH=src
-          scan_args=()
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_collection }}" == "true" ]]; then
-            scan_args+=(--all)
-          fi
-          # Never publish private source repository names into public Actions logs.
-          # A numeric index corresponds to the private archive's source inventory.
-          if ! python -m history_archive.fleet_cli \
-              --root . --sources config/fleet-repositories.txt "${scan_args[@]}" 2>&1 \
-              | jq -Rc 'try (fromjson | del(.repository, .error, .path, .source)) catch {"collector_output":"redacted"}'; then
-            # Even a partially failing fleet scan must persist successfully
-            # retrieved items; the final step still marks this run as failed.
-            echo "FLEET_SCAN_FAILED=1" >> "$GITHUB_ENV"
-          fi
-
-      - name: Commit only archive evidence with bounded contention retries
-        shell: bash
-        working-directory: history-archive
-        run: |
-          set -euo pipefail
-          git add -A -- archive/ tracking/ || git add -A -- archive/
-          if git diff --cached --quiet; then
-            echo "No new history records to commit."
-            exit 0
-          fi
-          unexpected="$(git diff --cached --name-only | grep -Ev '^(archive|tracking)/' || true)"
-          if [[ -n "$unexpected" ]]; then
-            echo "::error::Unexpected staged path outside archive/tracking."
-            exit 2
-          fi
-          git config user.name "github-history-archive automation"
-          git config user.email "github-history-archive-automation@users.noreply.github.com"
-          git commit -m "archive: hourly GitHub fleet edit history"
-          for attempt in 1 2 3 4; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
-              exit 0
-            fi
-            git rebase --abort >/dev/null 2>&1 || true
-            if [[ "$attempt" -eq 4 ]]; then
-              echo "::error::Archive push failed after four attempts."
-              exit 1
-            fi
-            sleep "$((attempt * 2))"
-          done
 
       - name: Fail run if a source was not fully checked
         if: always()
