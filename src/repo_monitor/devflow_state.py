@@ -11,12 +11,16 @@ from datetime import datetime
 from typing import Callable, Iterable, Mapping
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from types import MappingProxyType
 
 DEVFLOW_ISSUES_URL = "https://api.github.com/repos/kinoko34077/devflow/issues?state=open&per_page=100"
 DEVFLOW_ISSUES_PAGE_SIZE = 100
 DEVFLOW_ISSUES_MAX_PAGES = 20
 CONTROL_PREFIX = "[REPO] "
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+# Mirror the devflow-owned numeric principal contract (#178 / #811).
+# Only the small direct-human check is local; bot provenance is producer-owned.
+TRUSTED_CONTROL_PRINCIPALS = MappingProxyType({79015263: "kinoko34077"})
 
 AUDIT_FRESHNESS_LABELS = {
     "devflow:audit-freshness:current": "CURRENT",
@@ -826,7 +830,14 @@ def _is_trusted_control_issue(
         return False
     association = str(issue.get("author_association") or "").strip().upper()
     if association in TRUSTED_AUTHOR_ASSOCIATIONS:
-        return True
+        user = issue.get("user")
+        if isinstance(user, Mapping):
+            principal_id = user.get("id")
+            if type(principal_id) is int:
+                expected_login = TRUSTED_CONTROL_PRINCIPALS.get(principal_id)
+                observed_login = user.get("login")
+                if expected_login is not None and (observed_login is None or observed_login == expected_login):
+                    return True
     return _derived_control_transport_trusted(
         issue,
         body,
