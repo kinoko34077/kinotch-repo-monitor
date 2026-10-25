@@ -168,7 +168,7 @@ jobs:
           fi
           if ! python -m history_archive.fleet_health \
               --root . --sources config/fleet-repositories.txt --max-age-hours 24 \
-              | jq -r '"### Durable fleet scan health\\n" + "- Configured sources: \\(.sources)\\n" + "- Recent full successes: \\(.recent_success)\\n" + "- Stale full successes: \\(.stale_success)\\n" + "- No recorded success: \\(.never_succeeded)\\n" + "- Last attempts failed: \\(.failed_last_attempt)\\n" + "- Awaiting retry window: \\(.deferred)"' \
+              | jq -r '["### Durable fleet scan health", ("- Sources: " + (.sources|tostring)), ("- Recent success: " + (.recent_success|tostring)), ("- Stale: " + (.stale_success|tostring)), ("- No success: " + (.never_succeeded|tostring)), ("- Failed: " + (.failed_last_attempt|tostring)), ("- Deferred: " + (.deferred|tostring))] | .[]' \
               >> "$GITHUB_STEP_SUMMARY"; then
             echo "::warning::Fleet health report unavailable; no success inferred."
           fi
