@@ -155,6 +155,24 @@ jobs:
             exit 1
           fi
 
+      - name: Report private fleet scan freshness as aggregate counts
+        if: always()
+        shell: bash
+        working-directory: history-archive
+        run: |
+          set -euo pipefail
+          export PYTHONPATH=src
+          if [[ ! -f config/fleet-repositories.txt ]]; then
+            echo "::warning::Fleet inventory not available for health report."
+            exit 0
+          fi
+          if ! python -m history_archive.fleet_health \
+              --root . --sources config/fleet-repositories.txt --max-age-hours 24 \
+              | jq -r '["### Durable fleet scan health", ("- Sources: " + (.sources|tostring)), ("- Recent success: " + (.recent_success|tostring)), ("- Stale: " + (.stale_success|tostring)), ("- No success: " + (.never_succeeded|tostring)), ("- Failed: " + (.failed_last_attempt|tostring)), ("- Deferred: " + (.deferred|tostring))] | .[]' \
+              >> "$GITHUB_STEP_SUMMARY"; then
+            echo "::warning::Fleet health report unavailable; no success inferred."
+          fi
+
       - name: Fail run if a source was not fully checked
         if: always()
         shell: bash
