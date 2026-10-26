@@ -331,6 +331,7 @@ class DevflowStateTests(unittest.TestCase):
             ("string-id", {"id": "79015263", "login": "kinoko34077"}),
             ("missing-id", {"login": "kinoko34077"}),
             ("login-mismatch", {"id": 79015263, "login": "different-user"}),
+            ("login-absent", {"id": 79015263}),
         )
         for name, user in cases:
             with self.subTest(case=name):
