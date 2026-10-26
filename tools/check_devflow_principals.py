@@ -2,7 +2,10 @@
 import ast
 import json
 import urllib.request
+from pathlib import Path
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from repo_monitor.devflow_state import TRUSTED_CONTROL_PRINCIPALS
 
 SOURCE = "https://raw.githubusercontent.com/kinoko34077/devflow/main/tools/github_issue_trust.py"
