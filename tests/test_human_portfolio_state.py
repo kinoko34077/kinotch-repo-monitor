@@ -112,6 +112,7 @@ def issue_with_portfolio(**kwargs):
         "html_url": "https://github.com/kinoko34077/devflow/issues/59",
         "updated_at": "2026-10-06T01:00:00Z",
         "author_association": "OWNER",
+        "user": {"id": 79015263, "login": "kinoko34077"},
         "labels": [],
     }
 

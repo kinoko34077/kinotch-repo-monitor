@@ -122,6 +122,7 @@ def issue_payload():
             "html_url": "https://github.com/kinoko34077/devflow/issues/59",
             "updated_at": "2026-09-26T03:00:00Z",
             "author_association": "OWNER",
+            "user": {"id": 79015263, "login": "kinoko34077"},
             "labels": [{"name": "devflow:audit-freshness:current"}],
         }
     ]
@@ -320,6 +321,32 @@ class DevflowStateTests(unittest.TestCase):
         states = parse_control_issues([untrusted, unknown, pull_request, trusted])
 
         self.assertEqual(list(states), ["example-repo"])
+
+    def test_direct_control_trust_requires_numeric_principal_not_association_alone(self):
+        cases = (
+            ("missing-user", None),
+            ("empty-user", {}),
+            ("unlisted-id", {"id": 79015264, "login": "some-collaborator"}),
+            ("bool-id", {"id": True, "login": "kinoko34077"}),
+            ("string-id", {"id": "79015263", "login": "kinoko34077"}),
+            ("missing-id", {"login": "kinoko34077"}),
+            ("login-mismatch", {"id": 79015263, "login": "different-user"}),
+            ("login-absent", {"id": 79015263}),
+        )
+        for name, user in cases:
+            with self.subTest(case=name):
+                issue = {**issue_payload()[0], "author_association": "COLLABORATOR"}
+                if user is None:
+                    issue.pop("user")
+                else:
+                    issue["user"] = user
+                self.assertEqual(parse_control_issues([issue]), {})
+
+        # Association remains defense in depth, not principal authority.
+        valid = {**issue_payload()[0], "author_association": "COLLABORATOR"}
+        self.assertEqual(list(parse_control_issues([valid])), ["example-repo"])
+        missing_association = {**valid, "author_association": "NONE"}
+        self.assertEqual(parse_control_issues([missing_association]), {})
 
     def test_bootstrap_bot_control_with_current_verified_projection_is_accepted(self):
         issue = {

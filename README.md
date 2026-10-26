@@ -40,7 +40,7 @@ Pages版には以下を含めません。
 - responsive card表示、名前・branch・path・devflow状態の検索、local status filter
 - local statusを `編集中 / 一時停止 / 停止中 / Commit済 / 待機 / 確認中 / エラー` で表示
 - public `kinoko34077/devflow` のopen `[REPO]` Control Issueから workflow stateを読取専用で取得
-- devflow Controlは `OWNER` / `MEMBER` / `COLLABORATOR` のtrusted authorだけを採用し、PR lookalikeや重複trusted Controlはfail closed
+- devflow Controlの直接信頼は数値GitHubユーザーID許可リスト（現行ID `79015263`）を正本とし、`OWNER` / `MEMBER` / `COLLABORATOR` とログイン名は補助検証に使う。認証済みbot由来はdevflow発行の有効なProjectionで別途認め、PR lookalikeや重複trusted Controlはfail closed
 - branch、short HEAD、変更数、最終活動、ahead/behindを表示
 - ChatGPT URLの登録・直接open
 - network Git remoteを正規化できる場合に `Repo` actionを表示
@@ -66,7 +66,7 @@ Pages版には以下を含めません。
 
 devflow stateはlocal activityとは別レイヤです。`IMPLEMENTING`等は開発工程を表し、ChatGPTが今この瞬間に生成中であることは示しません。
 
-既定ではpublic GitHub REST APIを120秒cacheし、backgroundで更新します。取得失敗時は前回正常値をstaleとして維持し、local monitoringは継続します。Control候補はtrusted author associationだけを採用し、pull request objectは無視します。同一repo名のtrusted Controlが複数ある場合はlast-winsにせずrefreshを失敗扱いにして、前回正常snapshotがあればstaleとして維持します。
+既定ではpublic GitHub REST APIを120秒cacheし、backgroundで更新します。取得失敗時は前回正常値をstaleとして維持し、local monitoringは継続します。Control候補は許可済み数値ユーザーIDと補助的なauthor associationの両方を検証し、bot生成Controlはdevflowの有効なProjectionを検証します。pull request objectは無視します。同一repo名のtrusted Controlが複数ある場合はlast-winsにせずrefreshを失敗扱いにして、前回正常snapshotがあればstaleとして維持します。
 
 ## scan / refresh
 
