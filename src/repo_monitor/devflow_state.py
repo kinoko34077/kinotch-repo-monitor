@@ -836,7 +836,7 @@ def _is_trusted_control_issue(
             if type(principal_id) is int:
                 expected_login = TRUSTED_CONTROL_PRINCIPALS.get(principal_id)
                 observed_login = user.get("login")
-                if expected_login is not None and (observed_login is None or observed_login == expected_login):
+                if expected_login is not None and observed_login == expected_login:
                     return True
     return _derived_control_transport_trusted(
         issue,
