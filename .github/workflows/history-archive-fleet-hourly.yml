@@ -24,7 +24,7 @@ on:
 
 # A single trusted public runner handles the fleet; source repos need no workflows.
 concurrency:
-  group: history-archive-hourly-fleet
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.permission_probe && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
   cancel-in-progress: false
 
 permissions:
