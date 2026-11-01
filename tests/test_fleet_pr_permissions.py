@@ -25,6 +25,8 @@ class FleetPRPermissionContractTests(unittest.TestCase):
     def test_existing_schedule_and_source_collector_unchanged(self):
         self.assertIn('cron: "11 * * * *"', self.text)
         self.assertIn('cron: "37 4 * * *"', self.text)
+        self.assertIn("history-archive-source-permission-probe", self.text)
+        self.assertIn("history-archive-hourly-fleet", self.text)
         self.assertIn("--source-index", self.text)
         self.assertIn("Fail run if a source was not fully checked", self.text)
 
