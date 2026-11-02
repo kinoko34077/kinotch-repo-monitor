@@ -6,6 +6,11 @@ on:
     - cron: "37 4 * * *" # daily below-threshold tail flush; separate from hourly
   workflow_dispatch:
     inputs:
+      permission_probe:
+        description: 'Check source App PR read access only (no fleet scan)'
+        type: boolean
+        required: false
+        default: false
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -19,14 +24,52 @@ on:
 
 # A single trusted public runner handles the fleet; source repos need no workflows.
 concurrency:
-  group: history-archive-hourly-fleet
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.permission_probe && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  source-pr-read-preflight:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.permission_probe }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create source Issues and PR read token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: source-pr-read
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Verify source PR review and commit-comment read access without logging content
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.source-pr-read.outputs.token }}
+        run: |
+          set -euo pipefail
+          echo 'Probe checkpoint: pull-request GET'
+          gh api repos/kinoko34077/github-history-archive/pulls/34 > /dev/null
+          echo 'Probe checkpoint: pull-request reviews'
+          gh api repos/kinoko34077/github-history-archive/pulls/34/reviews > /dev/null
+          echo 'Probe checkpoint: inline review comments'
+          gh api repos/kinoko34077/github-history-archive/pulls/34/comments > /dev/null
+          echo 'Probe checkpoint: repository commit comments'
+          gh api repos/kinoko34077/github-history-archive/comments > /dev/null
+          echo 'Probe checkpoint: GraphQL PR/review edit-history capabilities'
+          echo 'Probe checkpoint: GraphQL PR baseline'
+          gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and .data.repository.pullRequest.id != null' > /dev/null
+          echo 'Probe checkpoint: GraphQL PR body edit history'
+          gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id userContentEdits(first:1){nodes{id}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.userContentEdits.nodes | type) == "array"' > /dev/null
+          echo 'Probe checkpoint: GraphQL review body edit history'
+          gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.reviews.nodes | type) == "array"' > /dev/null
+          echo 'Source App PR/review edit-history and REST commit-comment metadata reads completed; GraphQL repository.commitComments not attested.' >> "$GITHUB_STEP_SUMMARY"
+
   archive-fleet:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.permission_probe }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -48,7 +91,7 @@ jobs:
             exit 1
           fi
 
-      - name: Create source Issues-read token
+      - name: Create source Issues-and-PR-read token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: fleet-source
         with:
@@ -56,6 +99,7 @@ jobs:
           private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
           owner: kinoko34077
           permission-issues: read
+          permission-pull-requests: read
 
       - name: Create archive Contents-write token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
