@@ -11,6 +11,11 @@ on:
         type: boolean
         required: false
         default: false
+      edited_review_probe:
+        description: 'Opt-in private edited review + inline history count proof (no content emission)'
+        type: boolean
+        required: false
+        default: false
       start_source_index:
         description: 'Manual bounded recovery start index (1-based; default whole inventory)'
         type: number
@@ -59,6 +64,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.source-pr-read.outputs.token }}
+          EDITED_REVIEW_PROBE: ${{ inputs.edited_review_probe }}
         run: |
           set -euo pipefail
           echo 'Probe checkpoint: pull-request GET'
@@ -76,6 +82,11 @@ jobs:
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id userContentEdits(first:1){nodes{id}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.userContentEdits.nodes | type) == "array"' > /dev/null
           echo 'Probe checkpoint: GraphQL review body edit history'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.reviews.nodes | type) == "array"' > /dev/null
+          if [[ "$EDITED_REVIEW_PROBE" == "true" ]]; then
+            # Only boolean proof is emitted; private review text/diff and node IDs never leave the API pipe.
+            gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:5){nodes{userContentEdits(first:5){totalCount}}}reviewThreads(first:5){nodes{comments(first:5){nodes{userContentEdits(first:5){totalCount}}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=49 | jq -e '.errors == null and (any(.data.repository.pullRequest.reviews.nodes[]; .userContentEdits.totalCount >= 2)) and (any(.data.repository.pullRequest.reviewThreads.nodes[].comments.nodes[]; .userContentEdits.totalCount >= 2))' > /dev/null
+            echo 'Source App positive review-body and inline-comment edit-history counts verified; no private payload printed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo 'Source App PR/review edit-history and REST commit-comment metadata reads completed; GraphQL repository.commitComments not attested.' >> "$GITHUB_STEP_SUMMARY"
 
   archive-fleet:
