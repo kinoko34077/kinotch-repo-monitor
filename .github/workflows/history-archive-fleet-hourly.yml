@@ -85,30 +85,30 @@ jobs:
 
       # One-time opt-in M5 private evidence capture. Never runs in cron/default collector.
       - name: Create archive-only write token for positive pilot
-        if: \${{ inputs.review_archive_pilot }}
+        if: ${{ inputs.review_archive_pilot }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: review-pilot-write
         with:
-          client-id: \${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
-          private-key: \${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
           owner: kinoko34077
           repositories: github-history-archive
           permission-contents: write
       - name: Check out trusted private archive main for review pilot
-        if: \${{ inputs.review_archive_pilot }}
+        if: ${{ inputs.review_archive_pilot }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
           ref: main
-          token: \${{ steps.review-pilot-write.outputs.token }}
+          token: ${{ steps.review-pilot-write.outputs.token }}
           path: private-archive
           persist-credentials: true
       - name: Preserve verified edited review and inline histories to private pilot branch
-        if: \${{ inputs.review_archive_pilot }}
+        if: ${{ inputs.review_archive_pilot }}
         shell: bash
         working-directory: private-archive
         env:
-          FLEET_SOURCE_TOKEN: \${{ steps.source-pr-read.outputs.token }}
+          FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}
           ARCHIVE_CHECKOUT_ROOT: .
         run: |
           set -euo pipefail
@@ -119,11 +119,11 @@ jobs:
           python -m history_archive.v02_review_pilot
           git add -A -- archive/
           mapfile -t staged < <(git diff --cached --name-only)
-          if [[ "\${#staged[@]}" -ne 4 ]]; then
+          if [[ "${#staged[@]}" -ne 4 ]]; then
             echo "::error::Unexpected private review evidence file count."
             exit 2
           fi
-          for path in "\${staged[@]}"; do
+          for path in "${staged[@]}"; do
             if [[ "$path" != archive/* ]]; then
               echo "::error::Unexpected file outside private archive evidence."
               exit 2
