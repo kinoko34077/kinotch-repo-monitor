@@ -11,6 +11,16 @@ on:
         type: boolean
         required: false
         default: false
+      start_source_index:
+        description: 'Manual bounded recovery start index (1-based; default whole inventory)'
+        type: number
+        required: false
+        default: 1
+      end_source_index:
+        description: 'Manual bounded recovery end index (0 means full inventory)'
+        type: number
+        required: false
+        default: 0
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -125,12 +135,31 @@ jobs:
         working-directory: history-archive
         env:
           FLEET_SOURCE_TOKEN: ${{ steps.fleet-source.outputs.token }}
+          MANUAL_FIRST: ${{ inputs.start_source_index }}
+          MANUAL_LAST: ${{ inputs.end_source_index }}
         run: |
           set -euo pipefail
           export PYTHONPATH=src
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
           total="$(grep -cvE '^[[:space:]]*(#|$)' config/fleet-repositories.txt)"
+          # Only manual dispatch may narrow a source range. Scheduled sweeps always use all sources.
+          first=1
+          last="$total"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            first="${MANUAL_FIRST:-1}"
+            last="${MANUAL_LAST:-0}"
+            if [[ ! "$first" =~ ^[1-9][0-9]*$ || ! "$last" =~ ^(0|[1-9][0-9]*)$ ]]; then
+              echo "::error::Invalid bounded source range."
+              exit 2
+            fi
+            if [[ "$last" == "0" ]]; then last="$total"; fi
+            if (( first > last || last > total )); then
+              echo "::error::Source range exceeds configured inventory."
+              exit 2
+            fi
+          fi
+          range_count=$((last - first + 1))
           failures=0
           success_count=0
           recovered_count=0
@@ -140,7 +169,7 @@ jobs:
           fi
           scan_args=()
           if [[ "$scan_mode" == "tail" ]]; then scan_args+=(--all); fi
-          for index in $(seq 1 "$total"); do
+          for index in $(seq "$first" "$last"); do
             scanned=0
             for scan_attempt in 1 2 3; do
               if python -m history_archive.fleet_cli --root . \
@@ -189,6 +218,7 @@ jobs:
             echo "### Archive fleet collection receipt"
             echo "- Mode: $scan_mode"
             echo "- Configured sources: $total"
+            echo "- Attempted source indices: $first-$last (count: $range_count)"
             echo "- Succeeded: $success_count"
             echo "- Recovered after retry: $recovered_count"
             echo "- Failed after retries: $failures"
