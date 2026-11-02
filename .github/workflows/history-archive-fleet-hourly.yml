@@ -59,16 +59,14 @@ jobs:
           gh api repos/kinoko34077/github-history-archive/pulls/34/comments > /dev/null
           echo 'Probe checkpoint: repository commit comments'
           gh api repos/kinoko34077/github-history-archive/comments > /dev/null
-          echo 'Probe checkpoint: GraphQL edit-history capabilities'
+          echo 'Probe checkpoint: GraphQL PR/review edit-history capabilities'
           echo 'Probe checkpoint: GraphQL PR baseline'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and .data.repository.pullRequest.id != null' > /dev/null
           echo 'Probe checkpoint: GraphQL PR body edit history'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id userContentEdits(first:1){nodes{id}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.userContentEdits.nodes | type) == "array"' > /dev/null
           echo 'Probe checkpoint: GraphQL review body edit history'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.reviews.nodes | type) == "array"' > /dev/null
-          echo 'Probe checkpoint: GraphQL commit-comment discovery'
-          gh api graphql -f query='query($owner:String!,$name:String!){repository(owner:$owner,name:$name){commitComments(first:1){nodes{id}}}}' -f owner=kinoko34077 -f name=github-history-archive | jq -e '.errors == null and (.data.repository.commitComments.nodes | type) == "array"' > /dev/null
-          echo 'Source App PR/review/commit-comment read probe completed; no source content printed.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source App PR/review edit-history and REST commit-comment metadata reads completed; GraphQL repository.commitComments not attested.' >> "$GITHUB_STEP_SUMMARY"
 
   archive-fleet:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.permission_probe }}
