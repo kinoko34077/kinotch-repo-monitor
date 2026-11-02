@@ -22,6 +22,16 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
         self.assertNotIn("skip-token-revoke: true", self.text)
 
+    def test_commit_comment_node_read_is_explicit_opt_in_without_logging_fixture(self):
+        self.assertIn("      commit_comment_probe_node_id:", self.text)
+        self.assertIn("        required: false", self.text)
+        self.assertIn("          COMMIT_PROBE_ID: ${{ inputs.commit_comment_probe_node_id }}", self.text)
+        self.assertIn('if [[ -n "$COMMIT_PROBE_ID" ]]; then', self.text)
+        self.assertIn("... on CommitComment{id repository{nameWithOwner} commit{oid} userContentEdits", self.text)
+        self.assertIn(".data.node.userContentEdits.totalCount >= 2", self.text)
+        self.assertNotIn("CC_kwDOUvlpyM4MYjkS", self.text)
+        self.assertNotIn("permission-contents: read", self.text)
+
     def test_existing_schedule_and_source_collector_unchanged(self):
         self.assertIn('cron: "11 * * * *"', self.text)
         self.assertIn('cron: "37 4 * * *"', self.text)
