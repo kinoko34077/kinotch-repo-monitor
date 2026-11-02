@@ -12,8 +12,8 @@ class FleetPRPermissionContractTests(unittest.TestCase):
 
     def test_probe_is_opt_in_and_skips_normal_collection(self):
         self.assertIn("      permission_probe:\n", self.text)
-        self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot) }}", self.text)
-        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot) }}", self.text)
+        self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot) }}", self.text)
+        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot) }}", self.text)
 
     def test_private_review_pilot_is_opt_in_and_fails_closed(self):
         self.assertIn("      review_archive_pilot:", self.text)
@@ -29,6 +29,18 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertIn("ARCHIVE_CHECKOUT_ROOT: .", self.text)
         self.assertNotIn("permission-contents: read", self.text)
         self.assertNotIn("git show", self.text)
+
+    def test_two_page_m6_pilot_is_opt_in_and_isolated(self):
+        self.assertIn("      pr_body_pages_pilot:", self.text)
+        self.assertIn("        default: false", self.text)
+        self.assertEqual(self.text.count("        if: ${{ inputs.pr_body_pages_pilot }}"), 3)
+        self.assertIn("pilot/v02-multipage-pr-body-20261103", self.text)
+        self.assertIn("python -m history_archive.v02_pr_body_pilot", self.text)
+        self.assertIn("FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}", self.text)
+        self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
+        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot) }}", self.text)
+        self.assertNotIn("permission-contents: read", self.text)
+        self.assertNotIn("permission-pull-requests: write", self.text)
 
     def test_source_is_read_only_and_archive_write_stays_separate(self):
         self.assertEqual(self.text.count("permission-pull-requests: read"), 2)
