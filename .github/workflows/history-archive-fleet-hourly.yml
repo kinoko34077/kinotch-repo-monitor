@@ -51,10 +51,15 @@ jobs:
           GH_TOKEN: ${{ steps.source-pr-read.outputs.token }}
         run: |
           set -euo pipefail
+          echo 'Probe checkpoint: pull-request GET'
           gh api repos/kinoko34077/github-history-archive/pulls/34 > /dev/null
+          echo 'Probe checkpoint: pull-request reviews'
           gh api repos/kinoko34077/github-history-archive/pulls/34/reviews > /dev/null
+          echo 'Probe checkpoint: inline review comments'
           gh api repos/kinoko34077/github-history-archive/pulls/34/comments > /dev/null
+          echo 'Probe checkpoint: repository commit comments'
           gh api repos/kinoko34077/github-history-archive/comments > /dev/null
+          echo 'Probe checkpoint: GraphQL edit-history capabilities'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id userContentEdits(first:1){nodes{id}} reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}} commitComments(first:1){nodes{id}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and .data.repository.pullRequest.id != null and (.data.repository.commitComments.nodes | type) == "array"' > /dev/null
           echo 'Source App PR/review/commit-comment read probe completed; no source content printed.' >> "$GITHUB_STEP_SUMMARY"
 
