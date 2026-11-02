@@ -6,6 +6,11 @@ on:
     - cron: "37 4 * * *" # daily below-threshold tail flush; separate from hourly
   workflow_dispatch:
     inputs:
+      review_archive_pilot:
+        description: 'Opt-in synthetic review edits to private archive proof, no normal fleet scan'
+        type: boolean
+        required: false
+        default: false
       permission_probe:
         description: 'Check source App PR read access only (no fleet scan)'
         type: boolean
@@ -34,7 +39,7 @@ on:
 
 # A single trusted public runner handles the fleet; source repos need no workflows.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.permission_probe && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot) && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
   cancel-in-progress: false
 
 permissions:
@@ -42,9 +47,9 @@ permissions:
 
 jobs:
   source-pr-read-preflight:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.permission_probe }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Create source Issues and PR read token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -78,8 +83,63 @@ jobs:
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.reviews.nodes | type) == "array"' > /dev/null
           echo 'Source App PR/review edit-history and REST commit-comment metadata reads completed; GraphQL repository.commitComments not attested.' >> "$GITHUB_STEP_SUMMARY"
 
+      # One-time opt-in M5 private evidence capture. Never runs in cron/default collector.
+      - name: Create archive-only write token for positive pilot
+        if: \${{ inputs.review_archive_pilot }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: review-pilot-write
+        with:
+          client-id: \${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: \${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+      - name: Check out trusted private archive main for review pilot
+        if: \${{ inputs.review_archive_pilot }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: \${{ steps.review-pilot-write.outputs.token }}
+          path: private-archive
+          persist-credentials: true
+      - name: Preserve verified edited review and inline histories to private pilot branch
+        if: \${{ inputs.review_archive_pilot }}
+        shell: bash
+        working-directory: private-archive
+        env:
+          FLEET_SOURCE_TOKEN: \${{ steps.source-pr-read.outputs.token }}
+          ARCHIVE_CHECKOUT_ROOT: .
+        run: |
+          set -euo pipefail
+          export PYTHONPATH=src
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          git switch -q -c pilot/v02-source-app-edited-reviews-20261103
+          python -m history_archive.v02_review_pilot
+          git add -A -- archive/
+          mapfile -t staged < <(git diff --cached --name-only)
+          if [[ "\${#staged[@]}" -ne 4 ]]; then
+            echo "::error::Unexpected private review evidence file count."
+            exit 2
+          fi
+          for path in "\${staged[@]}"; do
+            if [[ "$path" != archive/* ]]; then
+              echo "::error::Unexpected file outside private archive evidence."
+              exit 2
+            fi
+          done
+          if ! git diff --cached --check > /dev/null 2>&1; then
+            echo "::error::Private archive evidence fails Git whitespace check."
+            exit 2
+          fi
+          git commit -qm "archive(M5): save source-App verified review and inline edited histories"
+          git push -q origin HEAD:refs/heads/pilot/v02-source-app-edited-reviews-20261103
+          echo 'M5 pilot: two review-body and two inline revisions saved on private Git branch; independent readback required.' >> "$GITHUB_STEP_SUMMARY"
+
+
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.permission_probe }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot) }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
