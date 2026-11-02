@@ -11,11 +11,11 @@ on:
         type: boolean
         required: false
         default: false
-      commit_comment_probe_node_id:
-        description: 'Optional private commit-comment node ID for read-only source App edit-history proof'
-        type: string
+      commit_comment_probe:
+        description: 'Optional read-only CommitComment source App access diagnostic (no private IDs in inputs)'
+        type: boolean
         required: false
-        default: ''
+        default: false
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.source-pr-read.outputs.token }}
-          COMMIT_PROBE_ID: ${{ inputs.commit_comment_probe_node_id }}
+          COMMIT_PROBE: ${{ inputs.commit_comment_probe }}
         run: |
           set -euo pipefail
           echo 'Probe checkpoint: pull-request GET'
@@ -72,10 +72,20 @@ jobs:
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id userContentEdits(first:1){nodes{id}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.userContentEdits.nodes | type) == "array"' > /dev/null
           echo 'Probe checkpoint: GraphQL review body edit history'
           gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id reviews(first:1){nodes{id userContentEdits(first:1){nodes{id}}}}}}}' -f owner=kinoko34077 -f name=github-history-archive -F number=34 | jq -e '.errors == null and (.data.repository.pullRequest.reviews.nodes | type) == "array"' > /dev/null
-          if [[ -n "$COMMIT_PROBE_ID" ]]; then
-            # Private node ID is never emitted; only a positive count and source identity are asserted.
-            gh api graphql -f query='query($id:ID!){node(id:$id){... on CommitComment{id repository{nameWithOwner} commit{oid} userContentEdits(first:5){totalCount nodes{id}}}}}' -f id="$COMMIT_PROBE_ID" | jq -e '.errors == null and .data.node.id != null and .data.node.repository.nameWithOwner == "kinoko34077/github-history-archive" and (.data.node.commit.oid | type) == "string" and (.data.node.userContentEdits.totalCount | type) == "number" and .data.node.userContentEdits.totalCount >= 2' > /dev/null
-            echo 'Source App private CommitComment edit-history positive proof completed; no source data logged.' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$COMMIT_PROBE" == "true" ]]; then
+            # Extract test fixture identity inside the job; never put a private node ID in workflow inputs or logs.
+            COMMIT_NODE_ID="$(gh api repos/kinoko34077/github-history-archive/comments --jq 'map(select(.body | startswith("[v0.2 M5 fixture]"))) | .[0].node_id')"
+            if [[ -z "$COMMIT_NODE_ID" || "$COMMIT_NODE_ID" == "null" ]]; then echo "::error::Private fixture unavailable"; exit 1; fi
+            echo "::add-mask::$COMMIT_NODE_ID"
+            echo 'Probe checkpoint: GraphQL commit-comment node identity'
+            gh api graphql -f query='query($id:ID!){node(id:$id){id}}' -f id="$COMMIT_NODE_ID" | jq -e '.errors == null and .data.node.id != null' > /dev/null
+            echo 'Probe checkpoint: GraphQL CommitComment bare identity'
+            gh api graphql -f query='query($id:ID!){node(id:$id){... on CommitComment{id}}}' -f id="$COMMIT_NODE_ID" | jq -e '.errors == null and .data.node.id != null' > /dev/null
+            echo 'Probe checkpoint: GraphQL CommitComment edit count'
+            gh api graphql -f query='query($id:ID!){node(id:$id){... on CommitComment{id userContentEdits(first:5){totalCount nodes{id}}}}}' -f id="$COMMIT_NODE_ID" | jq -e '.errors == null and (.data.node.userContentEdits.totalCount | type) == "number" and .data.node.userContentEdits.totalCount >= 2' > /dev/null
+            echo 'Probe checkpoint: GraphQL CommitComment repository and commit'
+            gh api graphql -f query='query($id:ID!){node(id:$id){... on CommitComment{id repository{nameWithOwner} commit{oid}}}}' -f id="$COMMIT_NODE_ID" | jq -e '.errors == null and .data.node.repository.nameWithOwner == "kinoko34077/github-history-archive" and (.data.node.commit.oid | type) == "string"' > /dev/null
+            echo "Positive private commit-comment edit-count proof completed; node ID masked." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo 'Source App PR/review edit-history and REST commit-comment metadata reads completed; GraphQL repository.commitComments not attested.' >> "$GITHUB_STEP_SUMMARY"
 
