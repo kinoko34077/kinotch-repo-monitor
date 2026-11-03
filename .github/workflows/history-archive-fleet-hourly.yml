@@ -155,7 +155,7 @@ jobs:
 
       # M6 source-account-candidate reconciliation; explicit opt-in, never on cron/default.
       - name: Create archive-only private checkpoint token for M6
-        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: m6-private-write
         with:
@@ -165,16 +165,16 @@ jobs:
           repositories: github-history-archive
           permission-contents: write
       - name: Check out isolated private archive evidence for M6/M7
-        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
-          ref: ${{ inputs.pr_body_positive_canary && 'pilot/v02-multipage-pr-body-20261103' || 'main' }}
+          ref: ${{ (inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) && 'pilot/v02-multipage-pr-body-20261103' || 'main' }}
           token: ${{ steps.m6-private-write.outputs.token }}
           path: m6-private-archive
           persist-credentials: true
       - name: Check out reviewed private archive main code for M7
-        if: ${{ inputs.pr_body_positive_canary }}
+        if: ${{ inputs.pr_body_positive_canary || inputs.pr_body_reconciliation }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
@@ -183,13 +183,14 @@ jobs:
           path: m7-trusted-code
           persist-credentials: false
       - name: Execute two remote-verified PR-body candidate pages, without logging private content
-        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation }}
         shell: bash
         working-directory: m6-private-archive
         env:
           FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}
           ARCHIVE_CHECKOUT_ROOT: .
           CANARY_RESUME: ${{ inputs.pr_body_positive_canary }}
+          PR_BODY_RECONCILIATION: ${{ inputs.pr_body_reconciliation }}
         run: |
           set -euo pipefail
           git config user.name "github-history-archive automation"
