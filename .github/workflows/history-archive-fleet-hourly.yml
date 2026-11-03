@@ -195,7 +195,15 @@ jobs:
           set -euo pipefail
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
-          if [[ "$CANARY_RESUME" == "true" ]]; then
+          if [[ "$PR_BODY_RECONCILIATION" == "true" ]]; then
+            # Real repeat collection over the previously verified private frontier.
+            # Source reads require a short-lived PR-read App token.
+            # Writes are scoped to an archive-only private branch.
+            git switch -q -C pilot/v02-multipage-pr-body-20261103
+            export PYTHONPATH=../m7-trusted-code/src
+            python -m history_archive.v02_pr_body_pilot --recrawl-pr-body
+            echo 'M7 live one-source PR-body reconciliation executed; verify private remote receipt and edit-ID coverage.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$CANARY_RESUME" == "true" ]]; then
             # Run reviewed main code against existing isolated private remote evidence.
             # The Python runner verifies exact remote cursor bytes before source reads.
             git switch -q -C pilot/v02-multipage-pr-body-20261103
