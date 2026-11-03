@@ -16,6 +16,11 @@ on:
         type: boolean
         required: false
         default: false
+      pr_body_positive_canary:
+        description: 'Opt-in positive PR-body edits from remote-verified private M6 frontier'
+        type: boolean
+        required: false
+        default: false
       permission_probe:
         description: 'Check source App PR read access only (no fleet scan)'
         type: boolean
@@ -44,7 +49,7 @@ on:
 
 # A single trusted public runner handles the fleet; source repos need no workflows.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot) && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary) && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
   cancel-in-progress: false
 
 permissions:
@@ -52,7 +57,7 @@ permissions:
 
 jobs:
   source-pr-read-preflight:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -145,7 +150,7 @@ jobs:
 
       # M6 source-account-candidate reconciliation; explicit opt-in, never on cron/default.
       - name: Create archive-only private checkpoint token for M6
-        if: ${{ inputs.pr_body_pages_pilot }}
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: m6-private-write
         with:
@@ -154,33 +159,52 @@ jobs:
           owner: kinoko34077
           repositories: github-history-archive
           permission-contents: write
-      - name: Check out trusted private archive main for M6
-        if: ${{ inputs.pr_body_pages_pilot }}
+      - name: Check out isolated private archive evidence for M6/M7
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: ${{ inputs.pr_body_positive_canary && 'pilot/v02-multipage-pr-body-20261103' || 'main' }}
+          token: ${{ steps.m6-private-write.outputs.token }}
+          path: m6-private-archive
+          persist-credentials: true
+      - name: Check out reviewed private archive main code for M7
+        if: ${{ inputs.pr_body_positive_canary }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
           ref: main
           token: ${{ steps.m6-private-write.outputs.token }}
-          path: m6-private-archive
-          persist-credentials: true
+          path: m7-trusted-code
+          persist-credentials: false
       - name: Execute two remote-verified PR-body candidate pages, without logging private content
-        if: ${{ inputs.pr_body_pages_pilot }}
+        if: ${{ inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary }}
         shell: bash
         working-directory: m6-private-archive
         env:
           FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}
           ARCHIVE_CHECKOUT_ROOT: .
+          CANARY_RESUME: ${{ inputs.pr_body_positive_canary }}
         run: |
           set -euo pipefail
-          export PYTHONPATH=src
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
-          git switch -q -c pilot/v02-multipage-pr-body-20261103
-          python -m history_archive.v02_pr_body_pilot
-          echo 'M6 PR-body two-page private remote ACK accepted only by bounded source+checkpoint contract.' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$CANARY_RESUME" == "true" ]]; then
+            # Run reviewed main code against existing isolated private remote evidence.
+            # The Python runner verifies exact remote cursor bytes before source reads.
+            git switch -q -C pilot/v02-multipage-pr-body-20261103
+            export PYTHONPATH=../m7-trusted-code/src
+            python -m history_archive.v02_pr_body_pilot --resume-positive-canary
+            echo 'M7 canary: positive PR-body edit and private remote receipts accepted; no private content emitted.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            export PYTHONPATH=src
+            git switch -q -c pilot/v02-multipage-pr-body-20261103
+            python -m history_archive.v02_pr_body_pilot
+            echo 'M6 PR-body two-page private remote ACK accepted only by bounded source+checkpoint contract.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary) }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
