@@ -1,0 +1,73 @@
+name: Private PR-body history preservation (one source)
+
+on:
+  schedule:
+    - cron: "47 3,15 * * *"
+  workflow_dispatch: {}
+
+# Share the existing M7 manual pilot's concurrency group so two PR-body
+# writers cannot race on the same private branch.
+concurrency:
+  group: history-archive-source-permission-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  archive-pr-body:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Create source read-only GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: source-read
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+          permission-pull-requests: read
+
+      - name: Create private archive-only write token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-write
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+
+      - name: Check out verified private PR-body history frontier
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: pilot/v02-multipage-pr-body-20261103
+          token: ${{ steps.archive-write.outputs.token }}
+          path: archive-evidence
+          persist-credentials: true
+
+      - name: Check out trusted private archive main code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: archive-code
+          persist-credentials: false
+
+      - name: Reconcile real PR-body edits and privately verify every page
+        shell: bash
+        working-directory: archive-evidence
+        env:
+          FLEET_SOURCE_TOKEN: ${{ steps.source-read.outputs.token }}
+          ARCHIVE_CHECKOUT_ROOT: .
+        run: |
+          set -euo pipefail
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          git switch -q -C pilot/v02-multipage-pr-body-20261103
+          export PYTHONPATH=../archive-code/src
+          python -m history_archive.v02_pr_body_pilot --recrawl-pr-body
+          echo 'One-source PR-body retention ran; private remote proof remains authoritative.' >> "$GITHUB_STEP_SUMMARY"
