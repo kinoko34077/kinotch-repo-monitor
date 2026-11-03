@@ -14,7 +14,7 @@ class M7CanaryContractTests(unittest.TestCase):
         self.assertIn("      pr_body_positive_canary:", s)
         self.assertIn("        default: false", s)
         self.assertIn("inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary", s)
-        self.assertIn("(!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary)", s)
+        self.assertIn("(!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation)", s)
         self.assertIn('cron: "11 * * * *"', s)
         self.assertIn('cron: "37 4 * * *"', s)
 
@@ -22,7 +22,7 @@ class M7CanaryContractTests(unittest.TestCase):
         s = self.text
         self.assertIn("path: m7-trusted-code", s)
         self.assertIn("persist-credentials: false", s)
-        self.assertIn("ref: ${{ inputs.pr_body_positive_canary && 'pilot/v02-multipage-pr-body-20261103' || 'main' }}", s)
+        self.assertIn("ref: ${{ (inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) && 'pilot/v02-multipage-pr-body-20261103' || 'main' }}", s)
         self.assertIn("export PYTHONPATH=../m7-trusted-code/src", s)
         self.assertIn("python -m history_archive.v02_pr_body_pilot --resume-positive-canary", s)
         self.assertIn("git switch -q -C pilot/v02-multipage-pr-body-20261103", s)
