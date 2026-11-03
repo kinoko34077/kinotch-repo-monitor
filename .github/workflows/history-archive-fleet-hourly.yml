@@ -16,6 +16,11 @@ on:
         type: boolean
         required: false
         default: false
+      pr_body_reconciliation:
+        description: 'Run next real PR-body reconciliation for one private source (manual only)'
+        type: boolean
+        required: false
+        default: false
       pr_body_positive_canary:
         description: 'Opt-in positive PR-body edits from remote-verified private M6 frontier'
         type: boolean
@@ -49,7 +54,7 @@ on:
 
 # A single trusted public runner handles the fleet; source repos need no workflows.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary) && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) && 'history-archive-source-permission-probe' || 'history-archive-hourly-fleet' }}
   cancel-in-progress: false
 
 permissions:
@@ -57,7 +62,7 @@ permissions:
 
 jobs:
   source-pr-read-preflight:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -204,7 +209,7 @@ jobs:
           fi
 
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation) }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
