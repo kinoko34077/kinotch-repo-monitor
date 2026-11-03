@@ -1,0 +1,35 @@
+name: PR-body archive scheduled-run gap watchdog
+
+on:
+  schedule:
+    # Observe the 03:47 and 15:47 UTC PR-body source slots after a grace window.
+    - cron: "27 9,21 * * *"
+  workflow_dispatch: {}
+
+# Reads only the public Repo Monitor's own Actions runs. No private archive
+# data, source App token, write token or shared fleet concurrency is used.
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  check-scheduled-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted Repo Monitor diagnostic
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Read only public scheduled run metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow history-archive-pr-body-one-source.yml \
+            --event schedule \
+            --limit 40 \
+            --json createdAt,event,status,conclusion > scheduled-runs.json
+          python tools/pr_body_schedule_watchdog.py --runs scheduled-runs.json
