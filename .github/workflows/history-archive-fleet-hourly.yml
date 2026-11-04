@@ -41,6 +41,21 @@ on:
         type: number
         required: false
         default: 0
+      manual_all_seven:
+        description: 'Manual seven-kind archive: existing Issue fleet plus five v0.2 typed lanes'
+        type: boolean
+        required: false
+        default: false
+      manual_v02_pages:
+        description: 'Bounded PR candidate pages per source/type this run (1-5)'
+        type: number
+        required: false
+        default: 2
+      manual_reconcile_complete:
+        description: 'Explicitly restart already-complete v0.2 lanes (default resume/skip)'
+        type: boolean
+        required: false
+        default: false
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -303,7 +318,7 @@ jobs:
           success_count=0
           recovered_count=0
           scan_mode=hourly
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && ( "${{ inputs.full_collection }}" == "true" || "${{ inputs.tail_collection }}" == "true" ) ]] || [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "37 4 * * *" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && ( "${{ inputs.full_collection }}" == "true" || "${{ inputs.manual_all_seven }}" == "true" || "${{ inputs.tail_collection }}" == "true" ) ]] || [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "37 4 * * *" ]]; then
             scan_mode=tail
           fi
           # Temporary sanitized per-attempt diagnostics only; never source content.
@@ -406,3 +421,119 @@ jobs:
             exit 1
           fi
 
+  archive-v02-manual:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_all_seven && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - name: Create existing read-only source App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: source-read
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Create existing archive-only private write token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-write
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+      - name: Check out reviewed archive code and canonical 57-source inventory
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-code
+          persist-credentials: false
+      - name: Check out private checkpoint workspace
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-evidence
+          persist-credentials: true
+      - name: Manually preserve five additional edit-history kinds in bounded resumable lanes
+        shell: bash
+        working-directory: history-evidence
+        env:
+          FLEET_SOURCE_TOKEN: ${{ steps.source-read.outputs.token }}
+          SOURCE_FIRST: ${{ inputs.start_source_index }}
+          SOURCE_LAST: ${{ inputs.end_source_index }}
+          MAX_V02_PAGES: ${{ inputs.manual_v02_pages }}
+          RECONCILE_COMPLETE: ${{ inputs.manual_reconcile_complete }}
+        run: |
+          set -euo pipefail
+          inventory=../history-code/config/fleet-repositories.txt
+          export PYTHONPATH=../history-code/src
+          total=$(grep -cvE '^[[:space:]]*(#|$)' "$inventory")
+          first="${SOURCE_FIRST:-1}"
+          last="${SOURCE_LAST:-0}"
+          if [[ "$last" == "0" ]]; then last="$total"; fi
+          if [[ ! "$first" =~ ^[1-9][0-9]*$ || ! "$last" =~ ^[1-9][0-9]*$ ]] || (( first > last || last > total )); then
+            echo '::error::Invalid manual source index range'; exit 2
+          fi
+          if [[ ! "$MAX_V02_PAGES" =~ ^[1-5]$ ]]; then
+            echo '::error::Invalid bounded per-lane page limit'; exit 2
+          fi
+          git config user.name 'github-history-archive automation'
+          git config user.email 'github-history-archive-automation@users.noreply.github.com'
+          fail=0
+          complete=0
+          partial=0
+          for index in $(seq "$first" "$last"); do
+            for lane in pr-body pr-comment pr-review-body pr-review-comment commit-comment; do
+              printf -v source_num '%03d' "$index"
+              branch="manual/v02-s${source_num}-${lane}"
+              dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
+              if [[ -n "$dirty" ]]; then
+                echo '::error::Unpushed private evidence prevents safe branch switch'; exit 1
+              fi
+              if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
+                git fetch -q --no-tags origin "refs/heads/$branch"
+                git switch -q -C "$branch" FETCH_HEAD
+              else
+                git switch -q -C "$branch" origin/main
+              fi
+              args=(--inventory "$inventory" --checkout . --source-index "$index" --lane "$lane" --max-pages "$MAX_V02_PAGES")
+              if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then args+=(--reconcile-complete); fi
+              if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
+                state=$(printf '%s' "$summary" | jq -er '.state')
+                if [[ "$state" == 'COMPLETE' ]]; then
+                  complete=$((complete + 1))
+                else
+                  partial=$((partial + 1))
+                fi
+                echo "v0.2 index=$index lane=$lane state=$state"
+              else
+                fail=$((fail + 1))
+                echo "::warning::v0.2 index=$index lane=$lane FAILED or UNAVAILABLE; no completion inferred"
+                dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
+                if [[ -n "$dirty" ]]; then
+                  echo '::error::Failed source left unpushed evidence; abort before switching'; exit 1
+                fi
+              fi
+            done
+          done
+          {
+            echo '### Manual F4 v0.2 typed history collection'
+            echo "- Inventory sources: $total"
+            echo "- Source range: $first-$last"
+            echo "- Typed lanes completed: $complete"
+            echo "- Typed lanes still partial: $partial"
+            echo "- Typed lanes failed/unavailable: $fail"
+            echo '- Issue body/comment run separately in existing archive-fleet job of the same dispatch'
+            echo '- A partial or failed lane is NOT seven-kind archival acceptance; rerun the same range to resume'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if (( fail > 0 )); then
+            echo "::error::$fail typed source-lanes failed or were unavailable"; exit 1
+          fi
