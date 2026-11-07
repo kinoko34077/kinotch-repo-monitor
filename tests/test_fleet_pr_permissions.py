@@ -43,7 +43,7 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertNotIn("permission-pull-requests: write", self.text)
 
     def test_source_is_read_only_and_archive_write_stays_separate(self):
-        self.assertEqual(self.text.count("permission-pull-requests: read"), 2)
+        self.assertEqual(self.text.count("permission-pull-requests: read"), 3)
         self.assertIn("permission-issues: read", self.text)
         self.assertNotIn("permission-pull-requests: write", self.text)
         self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
