@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -191,35 +191,27 @@ def browser_candidates() -> list[Path]:
 
 
 def render_with_browser(browser: Path, url: str, screenshot: Path) -> None:
+    if __package__:
+        from tools.browser_audit import browser_connection, wait_until
+    else:
+        from browser_audit import browser_connection, wait_until
+
     screenshot = screenshot.resolve()
     screenshot.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="repo-monitor-browser-") as profile:
-        command = [
-            str(browser),
-            "--headless",
-            "--disable-gpu",
-            "--disable-extensions",
-            "--no-first-run",
-            "--hide-scrollbars",
-            "--window-size=1440,900",
-            "--virtual-time-budget=2500",
-            f"--user-data-dir={profile}",
-            f"--screenshot={screenshot}",
-            url,
-        ]
-        completed = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
+    with browser_connection(browser, url, headed=False, attach_port=None) as (devtools, _):
+        devtools.call("Page.enable")
+        wait_until(
+            devtools,
+            "document.readyState === 'complete' && document.querySelectorAll('.repo-card').length === 2",
         )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout)[-1200:]
-        raise RuntimeError(f"headless browser failed ({completed.returncode}): {detail}")
+        result = devtools.call(
+            "Page.captureScreenshot",
+            {"format": "png", "captureBeyondViewport": False},
+        )
+        data = result.get("data")
+        if not isinstance(data, str):
+            raise RuntimeError("headless browser did not return screenshot data")
+        screenshot.write_bytes(base64.b64decode(data))
     if not screenshot.exists() or screenshot.stat().st_size < 1000:
         raise RuntimeError("headless browser did not produce a usable screenshot")
 
