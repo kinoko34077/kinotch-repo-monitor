@@ -34,7 +34,8 @@ class RenderCheckBrowserTests(unittest.TestCase):
                     browser, url, headed=False, attach_port=None
                 )
                 wait_until.assert_called_once_with(
-                    devtools, "document.readyState === 'complete'"
+                    devtools,
+                    "document.readyState === 'complete' && document.querySelectorAll('.repo-card').length === 2",
                 )
                 self.assertIn(
                     call(
@@ -48,4 +49,3 @@ class RenderCheckBrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

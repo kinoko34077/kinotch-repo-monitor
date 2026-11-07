@@ -200,7 +200,10 @@ def render_with_browser(browser: Path, url: str, screenshot: Path) -> None:
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     with browser_connection(browser, url, headed=False, attach_port=None) as (devtools, _):
         devtools.call("Page.enable")
-        wait_until(devtools, "document.readyState === 'complete'")
+        wait_until(
+            devtools,
+            "document.readyState === 'complete' && document.querySelectorAll('.repo-card').length === 2",
+        )
         result = devtools.call(
             "Page.captureScreenshot",
             {"format": "png", "captureBeyondViewport": False},
@@ -262,4 +265,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
