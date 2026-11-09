@@ -52,10 +52,20 @@ on:
         required: false
         default: false
       manual_v02_pages:
-        description: 'Bounded PR candidate pages per source/type this run (1-5)'
+        description: 'Bounded PR candidate pages per source/type each cycle (1-5)'
         type: number
         required: false
         default: 2
+      manual_v02_cycles:
+        description: 'Sequential 5-page cycles within one runner (1-12), stop at COMPLETE'
+        type: number
+        required: false
+        default: 1
+      manual_v02_pause_seconds:
+        description: 'Pause between verified cycles in seconds (0-60)'
+        type: number
+        required: false
+        default: 5
       manual_reconcile_complete:
         description: 'Explicitly restart already-complete v0.2 lanes (default resume/skip)'
         type: boolean
@@ -475,6 +485,8 @@ jobs:
           SOURCE_FIRST: ${{ inputs.start_source_index }}
           SOURCE_LAST: ${{ inputs.end_source_index }}
           MAX_V02_PAGES: ${{ inputs.manual_v02_pages }}
+          MAX_V02_CYCLES: ${{ inputs.manual_v02_cycles }}
+          V02_PAUSE_SECONDS: ${{ inputs.manual_v02_pause_seconds }}
           RECONCILE_COMPLETE: ${{ inputs.manual_reconcile_complete }}
         run: |
           set -euo pipefail
@@ -490,51 +502,102 @@ jobs:
           if [[ ! "$MAX_V02_PAGES" =~ ^[1-5]$ ]]; then
             echo '::error::Invalid bounded per-lane page limit'; exit 2
           fi
+          if [[ ! "${MAX_V02_CYCLES:-1}" =~ ^(1[0-2]|[1-9])$ ]]; then
+            echo '::error::Invalid v0.2 cycle count (1-12)'; exit 2
+          fi
+          if [[ ! "${V02_PAUSE_SECONDS:-5}" =~ ^([0-9]|[1-5][0-9]|60)$ ]]; then
+            echo '::error::Invalid v0.2 pause seconds (0-60)'; exit 2
+          fi
+          # Leave headroom for checkout, verified private writes and cleanup.
+          started_at=$(date +%s)
+          deadline=$((started_at + 45 * 60))
           git config user.name 'github-history-archive automation'
           git config user.email 'github-history-archive-automation@users.noreply.github.com'
           fail=0
           complete=0
           partial=0
+          processed_sources=0
+          incomplete_at=0
           for index in $(seq "$first" "$last"); do
-            for lane in pr-body pr-comment pr-review-body pr-review-comment commit-comment; do
-              printf -v source_num '%03d' "$index"
-              branch="manual/v02-s${source_num}-${lane}"
-              dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
-              if [[ -n "$dirty" ]]; then
-                echo '::error::Unpushed private evidence prevents safe branch switch'; exit 1
+            source_complete=0
+            for ((cycle=1; cycle<=${MAX_V02_CYCLES:-1}; cycle++)); do
+              if (( $(date +%s) >= deadline )); then
+                echo "::warning::Bounded v0.2 collection stopped before runner deadline; private checkpoints retained."
+                break
               fi
-              if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
-                git fetch -q --no-tags origin "refs/heads/$branch"
-                git switch -q -C "$branch" FETCH_HEAD
-              else
-                git switch -q -C "$branch" origin/main
-              fi
-              args=(--inventory "$inventory" --checkout . --source-index "$index" --lane "$lane" --max-pages "$MAX_V02_PAGES")
-              if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then args+=(--reconcile-complete); fi
-              if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
-                state=$(printf '%s' "$summary" | jq -er '.state')
-                if [[ "$state" == 'COMPLETE' ]]; then
-                  complete=$((complete + 1))
-                else
-                  partial=$((partial + 1))
-                fi
-                echo "v0.2 index=$index lane=$lane state=$state"
-              else
-                fail=$((fail + 1))
-                echo "::warning::v0.2 index=$index lane=$lane FAILED or UNAVAILABLE; no completion inferred"
+              completed_this_cycle=0
+              partial_this_cycle=0
+              failed_this_cycle=0
+              echo "v0.2 index=$index cycle=$cycle started (max_pages=$MAX_V02_PAGES)"
+              for lane in pr-body pr-comment pr-review-body pr-review-comment commit-comment; do
+                printf -v source_num '%03d' "$index"
+                branch="manual/v02-s${source_num}-${lane}"
                 dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
                 if [[ -n "$dirty" ]]; then
-                  echo '::error::Failed source left unpushed evidence; abort before switching'; exit 1
+                  echo '::error::Unpushed private evidence prevents safe branch switch'; exit 1
                 fi
+                if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
+                  git fetch -q --no-tags origin "refs/heads/$branch"
+                  git switch -q -C "$branch" FETCH_HEAD
+                else
+                  git switch -q -C "$branch" origin/main
+                fi
+                args=(--inventory "$inventory" --checkout . --source-index "$index" --lane "$lane" --max-pages "$MAX_V02_PAGES")
+                if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then args+=(--reconcile-complete); fi
+                if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
+                  state=$(printf '%s' "$summary" | jq -er '.state')
+                  if [[ "$state" == 'COMPLETE' ]]; then
+                    completed_this_cycle=$((completed_this_cycle + 1))
+                  elif [[ "$state" == 'ACTIVE' ]]; then
+                    partial_this_cycle=$((partial_this_cycle + 1))
+                  else
+                    echo '::error::Unexpected v0.2 lane state'; exit 1
+                  fi
+                  echo "v0.2 index=$index cycle=$cycle lane=$lane state=$state"
+                else
+                  fail=$((fail + 1))
+                  failed_this_cycle=1
+                  echo "::warning::v0.2 index=$index lane=$lane FAILED or UNAVAILABLE; no completion inferred"
+                  dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
+                  if [[ -n "$dirty" ]]; then
+                    echo '::error::Failed source left unpushed evidence; abort before switching'; exit 1
+                  fi
+                  break
+                fi
+              done
+              if (( failed_this_cycle > 0 )); then
+                break
+              fi
+              complete=$completed_this_cycle
+              partial=$partial_this_cycle
+              echo "v0.2 index=$index cycle=$cycle verified_complete=$complete verified_partial=$partial"
+              if (( completed_this_cycle == 5 )); then
+                source_complete=1
+                break
+              fi
+              if (( cycle < ${MAX_V02_CYCLES:-1} )); then
+                sleep "${V02_PAUSE_SECONDS:-5}"
               fi
             done
+            processed_sources=$((processed_sources + 1))
+            if (( source_complete == 0 )); then
+              # Never advance to the next source before all five lanes are
+              # COMPLETE, even when the requested source range spans repos.
+              incomplete_at=$index
+              echo "::warning::v0.2 index=$index incomplete; later sources not started."
+              break
+            fi
           done
           {
             echo '### Manual F4 v0.2 typed history collection'
             echo "- Inventory sources: $total"
-            echo "- Source range: $first-$last"
-            echo "- Typed lanes completed: $complete"
-            echo "- Typed lanes still partial: $partial"
+            echo "- Requested source range: $first-$last"
+            echo "- Sources attempted (completion-first): $processed_sources"
+            echo "- First incomplete source (0 means none): $incomplete_at"
+            echo "- Final checked source typed lanes complete: $complete"
+            echo "- Final checked source typed lanes partial: $partial"
+            echo "- Max verification cycles per source: ${MAX_V02_CYCLES:-1}"
+            echo "- Inter-cycle pause seconds: ${V02_PAUSE_SECONDS:-5}"
             echo "- Typed lanes failed/unavailable: $fail"
             if [[ "${{ inputs.manual_v02_only }}" == 'true' ]]; then
               echo '- v0.1 Issue body/comment fleet deliberately skipped for this delta-only dispatch'
