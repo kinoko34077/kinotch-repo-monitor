@@ -14,7 +14,7 @@ class M7CanaryContractTests(unittest.TestCase):
         self.assertIn("      pr_body_positive_canary:", s)
         self.assertIn("        default: false", s)
         self.assertIn("inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary", s)
-        self.assertIn("(!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation)", s)
+        self.assertIn("(!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only)", s)
         self.assertIn('cron: "11 * * * *"', s)
         self.assertIn('cron: "37 4 * * *"', s)
 

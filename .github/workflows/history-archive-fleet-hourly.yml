@@ -46,6 +46,11 @@ on:
         type: boolean
         required: false
         default: false
+      manual_v02_only:
+        description: 'Only resume five v0.2 lanes; never rerun the independent v0.1 Issue fleet'
+        type: boolean
+        required: false
+        default: false
       manual_v02_pages:
         description: 'Bounded PR candidate pages per source/type this run (1-5)'
         type: number
@@ -233,7 +238,7 @@ jobs:
           fi
 
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -422,7 +427,7 @@ jobs:
           fi
 
   archive-v02-manual:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_all_seven && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.manual_all_seven || inputs.manual_v02_only) && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
     runs-on: ubuntu-latest
     timeout-minutes: 55
     permissions:
@@ -531,7 +536,11 @@ jobs:
             echo "- Typed lanes completed: $complete"
             echo "- Typed lanes still partial: $partial"
             echo "- Typed lanes failed/unavailable: $fail"
-            echo '- Issue body/comment run separately in existing archive-fleet job of the same dispatch'
+            if [[ "${{ inputs.manual_v02_only }}" == 'true' ]]; then
+              echo '- v0.1 Issue body/comment fleet deliberately skipped for this delta-only dispatch'
+            else
+              echo '- v0.1 Issue body/comment fleet runs separately in the same seven-kind dispatch'
+            fi
             echo '- A partial or failed lane is NOT seven-kind archival acceptance; rerun the same range to resume'
           } >> "$GITHUB_STEP_SUMMARY"
           if (( fail > 0 )); then

@@ -13,7 +13,7 @@ class FleetPRPermissionContractTests(unittest.TestCase):
     def test_probe_is_opt_in_and_skips_normal_collection(self):
         self.assertIn("      permission_probe:\n", self.text)
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) }}", self.text)
-        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation) }}", self.text)
+        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}", self.text)
 
     def test_private_review_pilot_is_opt_in_and_fails_closed(self):
         self.assertIn("      review_archive_pilot:", self.text)
@@ -38,9 +38,16 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertIn("python -m history_archive.v02_pr_body_pilot", self.text)
         self.assertIn("FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}", self.text)
         self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
-        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation) }}", self.text)
+        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}", self.text)
         self.assertNotIn("permission-contents: read", self.text)
         self.assertNotIn("permission-pull-requests: write", self.text)
+
+    def test_v02_only_is_explicit_and_skips_duplicate_v01_sweep(self):
+        self.assertIn("      manual_v02_only:", self.text)
+        self.assertIn("        default: false", self.text)
+        self.assertIn("&& !inputs.manual_v02_only)", self.text)
+        self.assertIn("(inputs.manual_all_seven || inputs.manual_v02_only)", self.text)
+        self.assertIn("v0.1 Issue body/comment fleet deliberately skipped", self.text)
 
     def test_source_is_read_only_and_archive_write_stays_separate(self):
         self.assertEqual(self.text.count("permission-pull-requests: read"), 3)
