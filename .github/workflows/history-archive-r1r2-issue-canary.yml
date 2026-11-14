@@ -1,0 +1,70 @@
+name: R1/R2 Issue書面の実App限定受入（手動のみ）
+
+on:
+  workflow_dispatch: {}
+
+# 旧PR本文収集とは別のprivate検証ブランチ。自動起動・共有書込なし。
+concurrency:
+  group: history-archive-r1r2-issue-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 既存source Appの読取限定トークンを取得
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: source-read
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+          permission-pull-requests: read
+
+      - name: private検証ブランチ専用書込トークンを取得
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-write
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+
+      - name: privateの検証専用ブランチを取得
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: pilot/r1r2-issue-20261115
+          token: ${{ steps.archive-write.outputs.token }}
+          path: archive-evidence
+          persist-credentials: true
+
+      - name: 検証済みarchive mainのコードを取得
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: archive-code
+          persist-credentials: false
+
+      - name: R1候補のprivate証明とR2書面履歴の遠隔読戻し
+        shell: bash
+        working-directory: archive-evidence
+        env:
+          FLEET_SOURCE_TOKEN: ${{ steps.source-read.outputs.token }}
+          ARCHIVE_CHECKOUT_ROOT: .
+        run: |
+          set -euo pipefail
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          git switch -q -C pilot/r1r2-issue-20261115
+          export PYTHONPATH=../archive-code/src
+          python -m history_archive.r1r2_issue_canary
+          echo 'R1/R2の単一書面canaryを実行。保存原典と遠隔証明はprivate Gitのみ。' >> "$GITHUB_STEP_SUMMARY"
