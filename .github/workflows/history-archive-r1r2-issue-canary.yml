@@ -1,7 +1,16 @@
 name: R1/R2 Issue書面の実App限定受入（手動のみ）
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 検証する書面
+        required: true
+        type: choice
+        default: issue-body
+        options:
+          - issue-body
+          - issue-comment
 
 # 旧PR本文収集とは別のprivate検証ブランチ。自動起動・共有書込なし。
 concurrency:
@@ -60,11 +69,16 @@ jobs:
         env:
           FLEET_SOURCE_TOKEN: ${{ steps.source-read.outputs.token }}
           ARCHIVE_CHECKOUT_ROOT: .
+          CANARY_MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
           git switch -q -C pilot/r1r2-issue-20261115
           export PYTHONPATH=../archive-code/src
-          python -m history_archive.r1r2_issue_canary
+          case "$CANARY_MODE" in
+            issue-body) python -m history_archive.r1r2_issue_canary ;;
+            issue-comment) python -m history_archive.r1r2_issue_canary --issue-comment ;;
+            *) echo "::error::invalid canary mode" >&2; exit 2 ;;
+          esac
           echo 'R1/R2の単一書面canaryを実行。保存原典と遠隔証明はprivate Gitのみ。' >> "$GITHUB_STEP_SUMMARY"
