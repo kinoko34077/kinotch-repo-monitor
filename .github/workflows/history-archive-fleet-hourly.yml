@@ -513,99 +513,166 @@ jobs:
           deadline=$((started_at + 45 * 60))
           git config user.name 'github-history-archive automation'
           git config user.email 'github-history-archive-automation@users.noreply.github.com'
-          fail=0
-          complete=0
-          partial=0
-          processed_sources=0
-          incomplete_at=0
-          for index in $(seq "$first" "$last"); do
-            source_complete=0
-            for ((cycle=1; cycle<=${MAX_V02_CYCLES:-1}; cycle++)); do
-              if (( $(date +%s) >= deadline )); then
-                echo "::warning::Bounded v0.2 collection stopped before runner deadline; private checkpoints retained."
-                break
+          # One state per source/type, independent of the other four lanes.
+          # First visit every eligible lane, then continue ACTIVE lanes in
+          # bounded rounds. Failed lanes are deferred to one final retry.
+          declare -A states=() observed=() errors=()
+          lanes=(pr-body pr-comment pr-review-body pr-review-comment commit-comment)
+          deadline_reached=0
+
+          check_clean() {
+            local status dirty
+            status=$(git status --porcelain --untracked-files=all)
+            dirty=$(printf '%s\n' "$status" | grep -v '^?? .locks/' || true)
+            if [[ -n "$dirty" ]]; then
+              echo "::error::$1"; exit 1
+            fi
+          }
+
+          verify_lane_exit() {
+            local before="$1" branch="$2" message="$3" after remote
+            check_clean "$message"
+            after=$(git rev-parse HEAD)
+            if [[ "$before" != "$after" ]]; then
+              # A local commit can be clean even if its push failed. Do not
+              # reset/switch away until the exact remote checkpoint is proven.
+              if ! remote=$(git ls-remote --exit-code origin "refs/heads/$branch" 2>/dev/null); then
+                echo '::error::Unverified private commit prevents safe branch switch'; exit 1
               fi
-              completed_this_cycle=0
-              partial_this_cycle=0
-              failed_this_cycle=0
-              echo "v0.2 index=$index cycle=$cycle started (max_pages=$MAX_V02_PAGES)"
-              for lane in pr-body pr-comment pr-review-body pr-review-comment commit-comment; do
-                printf -v source_num '%03d' "$index"
-                branch="manual/v02-s${source_num}-${lane}"
-                dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
-                if [[ -n "$dirty" ]]; then
-                  echo '::error::Unpushed private evidence prevents safe branch switch'; exit 1
-                fi
-                if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
-                  git fetch -q --no-tags origin "refs/heads/$branch"
-                  git switch -q -C "$branch" FETCH_HEAD
-                else
-                  git switch -q -C "$branch" origin/main
-                fi
-                args=(--inventory "$inventory" --checkout . --source-index "$index" --lane "$lane" --max-pages "$MAX_V02_PAGES")
-                if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then args+=(--reconcile-complete); fi
-                if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
-                  state=$(printf '%s' "$summary" | jq -er '.state')
-                  if [[ "$state" == 'COMPLETE' ]]; then
-                    completed_this_cycle=$((completed_this_cycle + 1))
-                  elif [[ "$state" == 'ACTIVE' ]]; then
-                    partial_this_cycle=$((partial_this_cycle + 1))
-                  else
-                    echo '::error::Unexpected v0.2 lane state'; exit 1
-                  fi
-                  echo "v0.2 index=$index cycle=$cycle lane=$lane state=$state"
-                else
-                  fail=$((fail + 1))
-                  failed_this_cycle=1
-                  echo "::warning::v0.2 index=$index lane=$lane FAILED or UNAVAILABLE; no completion inferred"
-                  dirty=$(git status --porcelain --untracked-files=all | grep -v '^?? .locks/' || true)
-                  if [[ -n "$dirty" ]]; then
-                    echo '::error::Failed source left unpushed evidence; abort before switching'; exit 1
-                  fi
-                  break
-                fi
+              if [[ "${remote%%[[:space:]]*}" != "$after" ]]; then
+                echo '::error::Unverified private commit prevents safe branch switch'; exit 1
+              fi
+            fi
+          }
+
+          run_lane() {
+            local index="$1" lane="$2" phase="$3" key source_num branch summary state code rc before
+            key="$index/$lane"
+            if (( $(date +%s) >= deadline )); then
+              deadline_reached=1
+              return 0
+            fi
+            printf -v source_num '%03d' "$index"
+            branch="manual/v02-s${source_num}-${lane}"
+            check_clean 'Unpushed private evidence prevents safe branch switch'
+            if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
+              git fetch -q --no-tags origin "refs/heads/$branch"
+              git switch -q -C "$branch" FETCH_HEAD
+            else
+              rc=$?
+              if (( rc != 2 )); then
+                echo '::error::Cannot verify private evidence branch'; exit 1
+              fi
+              git switch -q -C "$branch" origin/main
+            fi
+            before=$(git rev-parse HEAD)
+            local args=(--inventory "$inventory" --checkout . --source-index "$index" --lane "$lane" --max-pages "$MAX_V02_PAGES")
+            # Reconcile at most once after a confirmed successful invocation.
+            # An unconfirmed failed first attempt must not masquerade as a
+            # successful reconciliation of an old COMPLETE generation.
+            if [[ "$RECONCILE_COMPLETE" == 'true' && -z "${observed[$key]:-}" ]]; then
+              args+=(--reconcile-complete)
+            fi
+            if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
+              if ! state=$(printf '%s' "$summary" | jq -er '.state' 2>/dev/null); then
+                echo '::error::Invalid sanitized v0.2 lane summary'; exit 1
+              fi
+              if [[ "$state" != COMPLETE && "$state" != ACTIVE ]]; then
+                echo '::error::Unexpected v0.2 lane state'; exit 1
+              fi
+              verify_lane_exit "$before" "$branch" 'Unpushed private evidence prevents safe branch switch'
+              states[$key]="$state"
+              observed[$key]=1
+              unset 'errors[$key]'
+              echo "v0.2 index=$index phase=$phase lane=$lane state=$state"
+            else
+              # The collector emits a sanitized JSON error, but allowlist
+              # again before logging. Never print raw stderr or API content.
+              code=$(printf '%s' "$summary" | jq -er '.error_code' 2>/dev/null || true)
+              case "$code" in
+                BAD_SOURCE_INDEX|BAD_LANE|BAD_PAGE_LIMIT|NO_SOURCE_TOKEN|FAILED_FRONTIER|SOURCE_OR_CHECKPOINT_FAILURE) ;;
+                *) code=UNCLASSIFIED_FAILURE ;;
+              esac
+              states[$key]=FAILED
+              errors[$key]="$code"
+              echo "::warning::v0.2 index=$index lane=$lane phase=$phase FAILED or UNAVAILABLE; no completion inferred; code=$code"
+              verify_lane_exit "$before" "$branch" 'Failed source left unpushed evidence; abort before switching'
+              case "$code" in
+                BAD_SOURCE_INDEX|BAD_LANE|BAD_PAGE_LIMIT|NO_SOURCE_TOKEN)
+                  echo '::error::Global collector configuration failure'; exit 1 ;;
+              esac
+            fi
+          }
+
+          for ((cycle=1; cycle<=${MAX_V02_CYCLES:-1}; cycle++)); do
+            active=0
+            for index in $(seq "$first" "$last"); do
+              for lane in "${lanes[@]}"; do
+                key="$index/$lane"
+                case "${states[$key]:-NOT_SCANNED}" in
+                  COMPLETE|FAILED) continue ;;
+                esac
+                run_lane "$index" "$lane" "round-$cycle"
+                if (( deadline_reached )); then break 3; fi
+                if [[ "${states[$key]}" == ACTIVE ]]; then active=1; fi
               done
-              if (( failed_this_cycle > 0 )); then
-                break
-              fi
-              complete=$completed_this_cycle
-              partial=$partial_this_cycle
-              echo "v0.2 index=$index cycle=$cycle verified_complete=$complete verified_partial=$partial"
-              if (( completed_this_cycle == 5 )); then
-                source_complete=1
-                break
-              fi
-              if (( cycle < ${MAX_V02_CYCLES:-1} )); then
-                sleep "${V02_PAUSE_SECONDS:-5}"
-              fi
             done
-            processed_sources=$((processed_sources + 1))
-            if (( source_complete == 0 )); then
-              # Never advance to the next source before all five lanes are
-              # COMPLETE, even when the requested source range spans repos.
-              incomplete_at=$index
-              echo "::warning::v0.2 index=$index incomplete; later sources not started."
-              break
+            if (( ! active )); then break; fi
+            if (( cycle < ${MAX_V02_CYCLES:-1} )); then
+              sleep "${V02_PAUSE_SECONDS:-5}"
             fi
           done
+
+          # Exactly one retry, only for failed lanes, after healthy work.
+          # The existing overall deadline remains authoritative.
+          retries=0
+          if (( ! deadline_reached )); then
+            for index in $(seq "$first" "$last"); do
+              for lane in "${lanes[@]}"; do
+                key="$index/$lane"
+                if [[ "${states[$key]:-}" != FAILED ]]; then continue; fi
+                run_lane "$index" "$lane" retry
+                if (( deadline_reached )); then break 2; fi
+                retries=$((retries + 1))
+              done
+            done
+          fi
+
+          complete=0
+          partial=0
+          fail=0
+          unattempted=0
+          total_lanes=$(( (last - first + 1) * 5 ))
           {
             echo '### Manual F4 v0.2 typed history collection'
             echo "- Inventory sources: $total"
             echo "- Requested source range: $first-$last"
-            echo "- Sources attempted (completion-first): $processed_sources"
-            echo "- First incomplete source (0 means none): $incomplete_at"
-            echo "- Final checked source typed lanes complete: $complete"
-            echo "- Final checked source typed lanes partial: $partial"
-            echo "- Max verification cycles per source: ${MAX_V02_CYCLES:-1}"
-            echo "- Inter-cycle pause seconds: ${V02_PAUSE_SECONDS:-5}"
-            echo "- Typed lanes failed/unavailable: $fail"
+            echo "- Max normal rounds: ${MAX_V02_CYCLES:-1}"
+            echo "- Final retries attempted: $retries"
+            echo "- Deadline reached: $deadline_reached"
+            for index in $(seq "$first" "$last"); do
+              for lane in "${lanes[@]}"; do
+                key="$index/$lane"
+                case "${states[$key]:-NOT_SCANNED}" in
+                  COMPLETE) complete=$((complete + 1)) ;;
+                  ACTIVE) partial=$((partial + 1)); echo "- ACTIVE: $key" ;;
+                  FAILED) fail=$((fail + 1)); echo "- FAILED: $key (${errors[$key]})" ;;
+                  *) unattempted=$((unattempted + 1)); echo "- NOT_ATTEMPTED: $key" ;;
+                esac
+              done
+            done
+            echo "- Complete lanes: $complete/$total_lanes"
+            echo "- Active lanes: $partial"
+            echo "- Final failed lanes: $fail"
+            echo "- Unattempted lanes: $unattempted"
             if [[ "${{ inputs.manual_v02_only }}" == 'true' ]]; then
               echo '- v0.1 Issue body/comment fleet deliberately skipped for this delta-only dispatch'
             else
               echo '- v0.1 Issue body/comment fleet runs separately in the same seven-kind dispatch'
             fi
-            echo '- A partial or failed lane is NOT seven-kind archival acceptance; rerun the same range to resume'
+            echo '- Partial, failed or unattempted lanes are NOT seven-kind archival acceptance.'
+            echo '- Resume from existing private checkpoints; no history or frontier is reset.'
           } >> "$GITHUB_STEP_SUMMARY"
           if (( fail > 0 )); then
-            echo "::error::$fail typed source-lanes failed or were unavailable"; exit 1
+            echo "::error::$fail typed source-lanes remain failed or unavailable"; exit 1
           fi

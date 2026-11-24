@@ -24,17 +24,16 @@ class V02CycleDispatchTests(unittest.TestCase):
         self.assertIn('for ((cycle=1; cycle<=${MAX_V02_CYCLES:-1}; cycle++)); do', s)
         self.assertIn('sleep "${V02_PAUSE_SECONDS:-5}"', s)
 
-    def test_failure_and_incomplete_never_advance_source(self):
+    def test_failed_lanes_defer_and_resume_preserves_safety(self):
         s = self.job
-        self.assertIn('if (( failed_this_cycle > 0 )); then', s)
-        self.assertIn('if (( completed_this_cycle == 5 )); then', s)
-        self.assertIn('if (( source_complete == 0 )); then', s)
-        self.assertIn('incomplete_at=$index', s)
-        self.assertIn('echo "::warning::v0.2 index=$index incomplete; later sources not started."', s)
+        self.assertIn('COMPLETE|FAILED) continue ;;', s)
+        self.assertIn('run_lane "$index" "$lane" retry', s)
         self.assertIn('if (( fail > 0 )); then', s)
         self.assertIn('git ls-remote --exit-code origin "refs/heads/$branch"', s)
         self.assertIn('git switch -q -C "$branch" FETCH_HEAD', s)
-        self.assertIn('if [[ "$RECONCILE_COMPLETE" == \'true\' ]]; then args+=(--reconcile-complete); fi', s)
+        self.assertIn('args+=(--reconcile-complete)', s)
+        self.assertIn('Unverified private commit prevents safe branch switch', s)
+        self.assertIn('NOT_ATTEMPTED: $key', s)
 
     def test_public_runner_does_not_execute_duplicate_v01_fleet(self):
         s = self.workflow
