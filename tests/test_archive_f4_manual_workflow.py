@@ -23,7 +23,7 @@ class ManualSevenKindWorkflowTests(unittest.TestCase):
         section = self.content.split("\n  archive-v02-manual:\n", 1)[1]
         self.assertIn("github.event_name == 'workflow_dispatch'", section.splitlines()[0])
         self.assertIn("inputs.manual_all_seven", section.splitlines()[0])
-        self.assertIn("for lane in pr-body pr-comment pr-review-body pr-review-comment commit-comment", section)
+        self.assertIn("lanes=(pr-body pr-comment pr-review-body pr-review-comment commit-comment)", section)
         self.assertIn("--source-index", section)
         self.assertIn("--lane", section)
         self.assertIn("--reconcile-complete", section)
@@ -65,11 +65,15 @@ git() {
     if [[ "$1" == status ]]; then
         if [[ -f "$DIRTY" ]]; then echo ' M tracking/example.json'; fi
     elif [[ "$1" == ls-remote ]]; then
-        return 1
+        if [[ "$CASE" == branch-error ]]; then return 128; fi
+        return 2
     fi
     return 0
 }
 sleep() { :; }
+date() {
+    if [[ "$CASE" == deadline ]] && [[ -s "$CALLS" ]]; then echo 3000; else echo 0; fi
+}
 python() {
     local index="" lane="" reconcile=no
     while (( $# )); do
@@ -90,7 +94,7 @@ python() {
             return 1
         fi
     fi
-    if [[ "$key" == "2/pr-comment" && "$n" == 0 ]]; then
+    if [[ "$key" == "2/pr-comment" && ( "$n" == 0 || "$CASE" == partial ) ]]; then
         echo '{"state":"ACTIVE"}'
     else
         echo '{"state":"COMPLETE"}'
@@ -149,6 +153,28 @@ python() {
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(calls, ["1/pr-body no"])
         self.assertIn("Failed source left unpushed evidence", proc.stdout)
+
+    def test_deadline_reports_unattempted_without_retry(self):
+        proc, calls, report = self.run_case("deadline")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, ["1/pr-body no"])
+        self.assertIn("Deadline reached: 1", report)
+        self.assertIn("Unattempted lanes: 14", report)
+        self.assertIn("Final retries attempted: 0", report)
+
+    def test_branch_lookup_failure_is_not_a_missing_branch(self):
+        proc, calls, _ = self.run_case("branch-error")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, [])
+        self.assertIn("Cannot verify private evidence branch", proc.stdout)
+
+    def test_bounded_active_lane_does_not_prevent_later_sources(self):
+        proc, calls, report = self.run_case("partial")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(calls.count("2/pr-comment no"), 2)
+        self.assertEqual(calls.count("1/pr-body no"), 2)
+        self.assertIn("Active lanes: 1", report)
+        self.assertIn("Complete lanes: 14/15", report)
 
 
 if __name__ == "__main__":
