@@ -557,7 +557,9 @@ jobs:
               args+=(--reconcile-complete)
             fi
             if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
-              state=$(printf '%s' "$summary" | jq -er '.state')
+              if ! state=$(printf '%s' "$summary" | jq -er '.state' 2>/dev/null); then
+                echo '::error::Invalid sanitized v0.2 lane summary'; exit 1
+              fi
               if [[ "$state" != COMPLETE && "$state" != ACTIVE ]]; then
                 echo '::error::Unexpected v0.2 lane state'; exit 1
               fi
