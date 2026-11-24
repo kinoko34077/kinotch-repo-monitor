@@ -64,6 +64,8 @@ class ManualSchedulerBehaviorTests(unittest.TestCase):
 git() {
     if [[ "$1" == status ]]; then
         if [[ -f "$DIRTY" ]]; then echo ' M tracking/example.json'; fi
+    elif [[ "$1" == rev-parse ]]; then
+        if [[ -f "$UNPUSHED" ]]; then echo bbbbb; else echo aaaaa; fi
     elif [[ "$1" == ls-remote ]]; then
         if [[ "$CASE" == branch-error ]]; then return 128; fi
         return 2
@@ -89,6 +91,11 @@ python() {
     echo "$key $reconcile" >> "$CALLS"
     if [[ "$key" == "1/pr-body" ]]; then
         if [[ "$CASE" == dirty ]]; then touch "$DIRTY"; fi
+        if [[ "$CASE" == unpushed ]]; then touch "$UNPUSHED"; fi
+        if [[ "$CASE" == global ]]; then
+            echo '{"state":"FAILED","error_code":"NO_SOURCE_TOKEN"}' >&2
+            return 1
+        fi
         if [[ "$CASE" == persistent || "$CASE" == dirty || "$n" == 0 ]]; then
             echo '{"state":"FAILED","error_code":"SOURCE_OR_CHECKPOINT_FAILURE","raw":"NEVER_LOG_THIS"}' >&2
             return 1
@@ -117,7 +124,7 @@ python() {
                        V02_PAUSE_SECONDS="0",
                        RECONCILE_COMPLETE=str(reconcile).lower(),
                        GITHUB_STEP_SUMMARY=str(summary), CALLS=str(calls),
-                       DIRTY=str(root / "dirty"), CASE=case)
+                       DIRTY=str(root / "dirty"), UNPUSHED=str(root / "unpushed"), CASE=case)
             proc = subprocess.run([bash, "-c", prelude + "\n" + script],
                                   cwd=work, env=env, text=True,
                                   capture_output=True, timeout=30)
@@ -175,6 +182,18 @@ python() {
         self.assertEqual(calls.count("1/pr-body no"), 2)
         self.assertIn("Active lanes: 1", report)
         self.assertIn("Complete lanes: 14/15", report)
+
+    def test_clean_unpushed_commit_is_not_discarded(self):
+        proc, calls, _ = self.run_case("unpushed")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, ["1/pr-body no"])
+        self.assertIn("Unverified private commit prevents safe branch switch", proc.stdout)
+
+    def test_global_config_failure_is_not_retried(self):
+        proc, calls, _ = self.run_case("global")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, ["1/pr-body no"])
+        self.assertIn("Global collector configuration failure", proc.stdout)
 
 
 if __name__ == "__main__":
