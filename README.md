@@ -144,7 +144,7 @@ scan roots、repo path、ChatGPT URL、monitoring membershipを保存します�
 .\verify.cmd
 ```
 
-GitHub Actionsではunit/regression、compile、launcher smoke、cached-state負荷試験、real browser interaction regression、Edge/Chrome headless renderとscreenshot artifactまで実行します。
+GitHub Actionsではunit/regression、compile、launcher smoke、cached-state負荷試験、real browser interaction regression、Edge/Chrome headless renderとscreenshot artifactまで実行します。Pythonは宣言済みの3.11以上を検証対象とし、非対応の3.10を追加の必須CIマトリクスへ含めない。3.11以降の複数版検証も、実利用・配布先の互換性要件が確認できた場合に限る。
 
 主要な追加check:
 
