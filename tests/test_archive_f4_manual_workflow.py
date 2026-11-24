@@ -125,9 +125,16 @@ python() {
                        RECONCILE_COMPLETE=str(reconcile).lower(),
                        GITHUB_STEP_SUMMARY=str(summary), CALLS=str(calls),
                        DIRTY=str(root / "dirty"), UNPUSHED=str(root / "unpushed"), CASE=case)
-            proc = subprocess.run([bash, "-c", prelude + "\n" + script],
+            # Use a file rather than a large Windows bash -c argument.
+            script_path = root / "workflow-test.sh"
+            script_path.write_text(prelude + "\n" + script, encoding="utf-8", newline="\n")
+            syntax = subprocess.run([bash, "-n", script_path.as_posix()],
+                                    cwd=work, env=env, text=True,
+                                    capture_output=True, timeout=15)
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+            proc = subprocess.run([bash, script_path.as_posix()],
                                   cwd=work, env=env, text=True,
-                                  capture_output=True, timeout=30)
+                                  capture_output=True, timeout=60)
             report = summary.read_text(encoding="utf-8") if summary.exists() else ""
             return proc, calls.read_text(encoding="utf-8").splitlines(), report
 
