@@ -539,7 +539,14 @@ jobs:
               if ! remote=$(git ls-remote --exit-code origin "refs/heads/$branch" 2>/dev/null); then
                 echo '::error::Unverified private commit prevents safe branch switch'; exit 1
               fi
-              if [[ "${remote%%
+              if [[ "${remote%%[[:space:]]*}" != "$after" ]]; then
+                echo '::error::Unverified private commit prevents safe branch switch'; exit 1
+              fi
+            fi
+          }
+
+          run_lane() {
+            local index="$1" lane="$2" phase="$3" key source_num branch summary state code rc before
             key="$index/$lane"
             if (( $(date +%s) >= deadline )); then
               deadline_reached=1
@@ -658,6 +665,11 @@ jobs:
             echo "- Active lanes: $partial"
             echo "- Final failed lanes: $fail"
             echo "- Unattempted lanes: $unattempted"
+            if [[ "${{ inputs.manual_v02_only }}" == 'true' ]]; then
+              echo '- v0.1 Issue body/comment fleet deliberately skipped for this delta-only dispatch'
+            else
+              echo '- v0.1 Issue body/comment fleet runs separately in the same seven-kind dispatch'
+            fi
             echo '- Partial, failed or unattempted lanes are NOT seven-kind archival acceptance.'
             echo '- Resume from existing private checkpoints; no history or frontier is reset.'
           } >> "$GITHUB_STEP_SUMMARY"
