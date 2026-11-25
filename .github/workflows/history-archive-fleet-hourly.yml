@@ -297,6 +297,7 @@ jobs:
           token: ${{ steps.archive-write.outputs.token }}
           path: history-collector
           persist-credentials: false
+          sparse-checkout: src
       - name: Check out private archive for the single inventory refresh
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -404,6 +405,7 @@ jobs:
           token: ${{ steps.archive-write.outputs.token }}
           path: history-collector
           persist-credentials: false
+          sparse-checkout: src
       - name: Check out the exact shared inventory generation (data only)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -412,7 +414,10 @@ jobs:
           token: ${{ steps.archive-write.outputs.token }}
           path: history-code
           persist-credentials: false
-          sparse-checkout: config
+          sparse-checkout: |
+            /config/fleet-repositories.txt
+            /tracking/fleet/source-identities.json
+          sparse-checkout-cone-mode: false
 
       - name: Check out current private archive for evidence writes
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -619,6 +624,7 @@ jobs:
           token: ${{ steps.archive-write.outputs.token }}
           path: history-collector
           persist-credentials: false
+          sparse-checkout: src
       - name: Check out the exact shared inventory generation (data only)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -627,7 +633,10 @@ jobs:
           token: ${{ steps.archive-write.outputs.token }}
           path: history-code
           persist-credentials: false
-          sparse-checkout: config
+          sparse-checkout: |
+            /config/fleet-repositories.txt
+            /tracking/fleet/source-identities.json
+          sparse-checkout-cone-mode: false
       - name: Check out private checkpoint workspace
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
