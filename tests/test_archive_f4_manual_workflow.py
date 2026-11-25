@@ -77,6 +77,15 @@ date() {
     if [[ "$CASE" == deadline ]] && [[ -s "$CALLS" ]]; then echo 3000; else echo 0; fi
 }
 python() {
+    if [[ "$*" == *history_archive.inventory_commit* ]]; then
+        if [[ "$CASE" == stale-inventory ]]; then return 1; fi
+        if [[ "$CASE" == unavailable ]]; then
+            echo '{"state":"VERIFIED","source_count":3,"available_indices":[1,3],"unavailable_indices":[2]}'
+        else
+            echo '{"state":"VERIFIED","source_count":3,"available_indices":[1,2,3],"unavailable_indices":[]}'
+        fi
+        return 0
+    fi
     local index="" lane="" reconcile=no
     while (( $# )); do
         case "$1" in
@@ -123,6 +132,7 @@ python() {
                        MAX_V02_PAGES="2", MAX_V02_CYCLES="2",
                        V02_PAUSE_SECONDS="0",
                        RECONCILE_COMPLETE=str(reconcile).lower(),
+                       INVENTORY_GENERATION="a" * 40,
                        GITHUB_STEP_SUMMARY=str(summary), CALLS=str(calls),
                        DIRTY=str(root / "dirty"), UNPUSHED=str(root / "unpushed"), CASE=case)
             # Use a file rather than a large Windows bash -c argument.
@@ -201,6 +211,41 @@ python() {
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(calls, ["1/pr-body no"])
         self.assertIn("Global collector configuration failure", proc.stdout)
+
+    def test_unavailable_inventory_source_keeps_original_indices(self):
+        proc, calls, report = self.run_case("unavailable")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse(any(call.startswith("2/") for call in calls))
+        self.assertIn("3/commit-comment no", calls)
+        self.assertIn("Unavailable lanes: 5", report)
+        self.assertIn("Complete lanes: 10/15", report)
+
+    def test_unverified_inventory_refuses_all_collectors(self):
+        proc, calls, _ = self.run_case("stale-inventory")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, [])
+        self.assertIn("Shared inventory generation is not verified", proc.stdout)
+
+
+class SharedInventoryGenerationTests(unittest.TestCase):
+    def test_single_refresh_and_pinned_consumers(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        refresh = content.split("\n  inventory-refresh:\n", 1)[1].split("\n  archive-fleet:\n", 1)[0]
+        fleet = content.split("\n  archive-fleet:\n", 1)[1].split("\n  archive-v02-manual:\n", 1)[0]
+        typed = content.split("\n  archive-v02-manual:\n", 1)[1]
+        self.assertEqual(content.count("history_archive.inventory_commit refresh"), 1)
+        self.assertIn("github.ref == 'refs/heads/main'", refresh)
+        self.assertIn("permission-issues: read", refresh)
+        self.assertIn("repositories: github-history-archive", refresh)
+        self.assertIn("permission-contents: write", refresh)
+        for job in (fleet, typed):
+            self.assertIn("needs: inventory-refresh", job)
+            self.assertIn("ref: ${{ needs.inventory-refresh.outputs.generation }}", job)
+            self.assertIn("history_archive.inventory_commit inspect", job)
+            self.assertIn("available_indices | index($i)", job)
+            self.assertIn("persist-credentials: false", job)
+        self.assertIn('--sources "$inventory"', fleet)
+        self.assertIn('inventory=../history-code/config/fleet-repositories.txt', typed)
 
 
 if __name__ == "__main__":
