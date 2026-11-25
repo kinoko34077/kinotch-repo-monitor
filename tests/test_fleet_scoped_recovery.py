@@ -36,8 +36,9 @@ class ScopedFleetRecoveryTests(unittest.TestCase):
         self.assertIn('repositories: github-history-archive\n          permission-contents: write', text)
         self.assertIn('git add -A -- archive/ tracking/', text)
         self.assertIn('for attempt in 1 2 3 4; do', text)
-        self.assertIn('echo "- Attempted source indices: $first-$last (count: $range_count)"', text)
-        self.assertIn('if [[ "$failures" -ne 0 ]]; then', text)
+        self.assertIn('echo "- Requested source indices: $first-$last (count: $range_count)"', text)
+        self.assertIn('echo "- Unavailable (not attempted): $unavailable_count"', text)
+        self.assertIn('if (( failures + unavailable_count > 0 )); then', text)
         self.assertIn('if [[ "$scanned" -eq 1 ]]; then', text)
 
 if __name__ == "__main__":

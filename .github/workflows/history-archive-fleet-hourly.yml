@@ -71,6 +71,16 @@ on:
         type: boolean
         required: false
         default: false
+      manual_inventory_only:
+        description: 'Refresh the shared inventory without starting either collector'
+        type: boolean
+        required: false
+        default: false
+      manual_reconcile_before:
+        description: 'Optional UTC cutoff: revisit only older completed v0.2 lanes'
+        type: string
+        required: false
+        default: ''
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -89,6 +99,11 @@ concurrency:
 
 permissions:
   contents: read
+
+# Code authority is independent of the changing evidence/inventory commit.
+# Advance this one reviewed ref when accepting collector-code changes.
+env:
+  ARCHIVE_COLLECTOR_REF: '0fb6c5af93b3b966259f7157f87999495f9385cb'
 
 jobs:
   source-pr-read-preflight:
@@ -247,8 +262,100 @@ jobs:
             echo 'M6 PR-body two-page private remote ACK accepted only by bounded source+checkpoint contract.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  inventory-refresh:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      generation: ${{ steps.refresh.outputs.generation }}
+      allowed_indices: ${{ steps.refresh.outputs.allowed_indices }}
+      mode: ${{ steps.refresh.outputs.mode }}
+    steps:
+      - name: Create existing read-only source App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: source-read
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Create existing archive-only private write token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: archive-write
+        with:
+          client-id: ${{ vars.HISTORY_ARCHIVE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HISTORY_ARCHIVE_APP_PRIVATE_KEY }}
+          owner: kinoko34077
+          repositories: github-history-archive
+          permission-contents: write
+      - name: Check out the reviewed immutable collector code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: ${{ env.ARCHIVE_COLLECTOR_REF }}
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-collector
+          persist-credentials: false
+          sparse-checkout: src
+      - name: Check out private archive for the single inventory refresh
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: main
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-inventory
+          persist-credentials: true
+      - name: Refresh and verify the shared source inventory once
+        id: refresh
+        shell: bash
+        working-directory: history-inventory
+        env:
+          FLEET_SOURCE_TOKEN: ${{ steps.source-read.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$(git -C ../history-collector rev-parse HEAD)" != "$ARCHIVE_COLLECTOR_REF" ]] || [[ -n "$(git -C ../history-collector status --porcelain --untracked-files=all)" ]]; then
+            echo "::error::Reviewed collector checkout is not verified"; exit 1
+          fi
+          export PYTHONPATH=../history-collector/src
+          git config user.name "github-history-archive automation"
+          git config user.email "github-history-archive-automation@users.noreply.github.com"
+          mode=REFRESHED
+          if ! summary=$(python -P -B -m history_archive.inventory_commit refresh --checkout .); then
+            # A failed inventory publication never licenses a stale blind scan.
+            # Re-read the current remote and attest the remaining IDs using a
+            # fresh complete source App listing. This recovery does not publish.
+            if [[ -n "$(git status --porcelain --untracked-files=all)" ]] ||
+               ! git fetch -q --no-tags origin refs/heads/main 2>/dev/null ||
+               ! git switch -q --detach FETCH_HEAD 2>/dev/null ||
+               ! summary=$(python -P -B -m history_archive.inventory_commit recover --checkout .); then
+              echo "::error::Shared source inventory and safe recovery unverified"
+              exit 1
+            fi
+            if ! printf '%s' "$summary" | jq -e '.refresh_mode == "DEGRADED"' >/dev/null; then
+              echo "::error::Invalid degraded inventory receipt"; exit 1
+            fi
+            mode=DEGRADED
+            echo "::warning::Inventory update deferred; collecting only reverified existing sources."
+          fi
+          generation=$(printf '%s' "$summary" | jq -er 'select(.state == "VERIFIED") | .generation')
+          allowed=$(printf '%s' "$summary" | jq -ec 'select(.state == "VERIFIED") | .available_indices | select(type == "array")')
+          if [[ ! "$generation" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Invalid verified inventory generation"
+            exit 1
+          fi
+          {
+            echo "generation=$generation"
+            echo "allowed_indices=$allowed"
+            echo "mode=$mode"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$mode" == DEGRADED && "${{ inputs.manual_inventory_only }}" == true ]]; then
+            echo "::warning::Inventory-only refresh remains incomplete."; exit 1
+          fi
+
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only && !inputs.manual_inventory_only) }}
+    needs: inventory-refresh
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -290,7 +397,29 @@ jobs:
           repositories: github-history-archive
           permission-contents: write
 
-      - name: Check out current private archive and shared collector
+      - name: Check out the reviewed immutable collector code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: ${{ env.ARCHIVE_COLLECTOR_REF }}
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-collector
+          persist-credentials: false
+          sparse-checkout: src
+      - name: Check out the exact shared inventory generation (data only)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: ${{ needs.inventory-refresh.outputs.generation }}
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-code
+          persist-credentials: false
+          sparse-checkout: |
+            /config/fleet-repositories.txt
+            /tracking/fleet/source-identities.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check out current private archive for evidence writes
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
@@ -306,12 +435,26 @@ jobs:
           FLEET_SOURCE_TOKEN: ${{ steps.fleet-source.outputs.token }}
           MANUAL_FIRST: ${{ inputs.start_source_index }}
           MANUAL_LAST: ${{ inputs.end_source_index }}
+          INVENTORY_GENERATION: ${{ needs.inventory-refresh.outputs.generation }}
+          INVENTORY_ALLOWED: ${{ needs.inventory-refresh.outputs.allowed_indices }}
+          INVENTORY_MODE: ${{ needs.inventory-refresh.outputs.mode }}
         run: |
           set -euo pipefail
-          export PYTHONPATH=src
+          export PYTHONPATH=../history-collector/src
+          inventory=../history-code/config/fleet-repositories.txt
           git config user.name "github-history-archive automation"
           git config user.email "github-history-archive-automation@users.noreply.github.com"
-          total="$(grep -cvE '^[[:space:]]*(#|$)' config/fleet-repositories.txt)"
+          if [[ "$(git -C ../history-collector rev-parse HEAD)" != "$ARCHIVE_COLLECTOR_REF" ]] || [[ -n "$(git -C ../history-collector status --porcelain --untracked-files=all)" ]]; then
+            echo "::error::Reviewed collector checkout is not verified"; exit 1
+          fi
+          if [[ -z "${INVENTORY_ALLOWED:-}" || ( "$INVENTORY_MODE" != REFRESHED && "$INVENTORY_MODE" != DEGRADED ) ]]; then
+            echo "::error::Shared inventory receipt missing"; exit 1
+          fi
+          if ! selection=$(python -P -B -m history_archive.inventory_commit inspect --checkout ../history-code --expected-commit "$INVENTORY_GENERATION" --allowed-indices-json "$INVENTORY_ALLOWED"); then
+            echo "::error::Shared inventory generation is not verified"
+            exit 1
+          fi
+          total=$(printf '%s' "$selection" | jq -er 'select(.state == "VERIFIED") | .source_count | select(type == "number" and . > 0)')
           # Only manual dispatch may narrow a source range. Scheduled sweeps always use all sources.
           first=1
           last="$total"
@@ -330,6 +473,7 @@ jobs:
           fi
           range_count=$((last - first + 1))
           failures=0
+          unavailable_count=0
           success_count=0
           recovered_count=0
           scan_mode=hourly
@@ -342,10 +486,15 @@ jobs:
           scan_args=()
           if [[ "$scan_mode" == "tail" ]]; then scan_args+=(--all); fi
           for index in $(seq "$first" "$last"); do
+            if ! printf '%s' "$selection" | jq -e --argjson i "$index" '.available_indices | index($i) != null' >/dev/null; then
+              unavailable_count=$((unavailable_count + 1))
+              echo "::warning::Source index $index unavailable in verified inventory; no completion inferred."
+              continue
+            fi
             scanned=0
             for scan_attempt in 1 2 3; do
-              if python -m history_archive.fleet_cli --root . \
-                  --sources config/fleet-repositories.txt "${scan_args[@]}" --source-index "$index" 2>&1 \
+              if python -P -B -m history_archive.fleet_cli --root . \
+                  --sources "$inventory" "${scan_args[@]}" --source-index "$index" 2>&1 \
                   | jq -Rc 'try (fromjson | del(.repository, .error, .path, .source)) catch {"collector_output":"redacted"}' | tee "$safe_scan_log"; then
                 scanned=1
                 if [[ "$scan_attempt" -gt 1 ]]; then recovered_count=$((recovered_count + 1)); fi
@@ -395,16 +544,21 @@ jobs:
           {
             echo "### Archive fleet collection receipt"
             echo "- Mode: $scan_mode"
+            echo "- Inventory refresh mode: $INVENTORY_MODE"
             echo "- Configured sources: $total"
-            echo "- Attempted source indices: $first-$last (count: $range_count)"
+            echo "- Requested source indices: $first-$last (count: $range_count)"
+            echo "- Unavailable (not attempted): $unavailable_count"
             echo "- Succeeded: $success_count"
             echo "- Recovered after retry: $recovered_count"
             echo "- Failed after retries: $failures"
             echo "- Archive checkpoint writes: see committed archive history"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$failures" -ne 0 ]]; then
-            echo "::error::$failures sources were not completely scanned."
+          if (( failures + unavailable_count > 0 )); then
+            echo "::error::$((failures + unavailable_count)) sources were not completely scanned."
             exit 1
+          fi
+          if [[ "$INVENTORY_MODE" == DEGRADED ]]; then
+            echo "::warning::Existing sources preserved; inventory refresh remains incomplete."; exit 1
           fi
 
       - name: Report private fleet scan freshness as aggregate counts
@@ -413,13 +567,13 @@ jobs:
         working-directory: history-archive
         run: |
           set -euo pipefail
-          export PYTHONPATH=src
-          if [[ ! -f config/fleet-repositories.txt ]]; then
+          export PYTHONPATH=../history-collector/src
+          if [[ ! -f ../history-code/config/fleet-repositories.txt ]]; then
             echo "::warning::Fleet inventory not available for health report."
             exit 0
           fi
-          if ! python -m history_archive.fleet_health \
-              --root . --sources config/fleet-repositories.txt --max-age-hours 24 \
+          if ! python -P -B -m history_archive.fleet_health \
+              --root . --sources ../history-code/config/fleet-repositories.txt --max-age-hours 24 \
               | jq -r '["### Durable fleet scan health", ("- Sources: " + (.sources|tostring)), ("- Recent success: " + (.recent_success|tostring)), ("- Stale: " + (.stale_success|tostring)), ("- No success: " + (.never_succeeded|tostring)), ("- Failed: " + (.failed_last_attempt|tostring)), ("- Deferred: " + (.deferred|tostring))] | .[]' \
               >> "$GITHUB_STEP_SUMMARY"; then
             echo "::warning::Fleet health report unavailable; no success inferred."
@@ -437,7 +591,8 @@ jobs:
           fi
 
   archive-v02-manual:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.manual_all_seven || inputs.manual_v02_only) && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.manual_all_seven || inputs.manual_v02_only) && !inputs.manual_inventory_only && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
+    needs: inventory-refresh
     runs-on: ubuntu-latest
     timeout-minutes: 55
     permissions:
@@ -461,14 +616,27 @@ jobs:
           owner: kinoko34077
           repositories: github-history-archive
           permission-contents: write
-      - name: Check out reviewed archive code and canonical 57-source inventory
+      - name: Check out the reviewed immutable collector code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: kinoko34077/github-history-archive
-          ref: main
+          ref: ${{ env.ARCHIVE_COLLECTOR_REF }}
+          token: ${{ steps.archive-write.outputs.token }}
+          path: history-collector
+          persist-credentials: false
+          sparse-checkout: src
+      - name: Check out the exact shared inventory generation (data only)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: kinoko34077/github-history-archive
+          ref: ${{ needs.inventory-refresh.outputs.generation }}
           token: ${{ steps.archive-write.outputs.token }}
           path: history-code
           persist-credentials: false
+          sparse-checkout: |
+            /config/fleet-repositories.txt
+            /tracking/fleet/source-identities.json
+          sparse-checkout-cone-mode: false
       - name: Check out private checkpoint workspace
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -488,11 +656,25 @@ jobs:
           MAX_V02_CYCLES: ${{ inputs.manual_v02_cycles }}
           V02_PAUSE_SECONDS: ${{ inputs.manual_v02_pause_seconds }}
           RECONCILE_COMPLETE: ${{ inputs.manual_reconcile_complete }}
+          RECONCILE_BEFORE: ${{ inputs.manual_reconcile_before }}
+          INVENTORY_GENERATION: ${{ needs.inventory-refresh.outputs.generation }}
+          INVENTORY_ALLOWED: ${{ needs.inventory-refresh.outputs.allowed_indices }}
+          INVENTORY_MODE: ${{ needs.inventory-refresh.outputs.mode }}
         run: |
           set -euo pipefail
           inventory=../history-code/config/fleet-repositories.txt
-          export PYTHONPATH=../history-code/src
-          total=$(grep -cvE '^[[:space:]]*(#|$)' "$inventory")
+          export PYTHONPATH=../history-collector/src
+          if [[ "$(git -C ../history-collector rev-parse HEAD)" != "$ARCHIVE_COLLECTOR_REF" ]] || [[ -n "$(git -C ../history-collector status --porcelain --untracked-files=all)" ]]; then
+            echo "::error::Reviewed collector checkout is not verified"; exit 1
+          fi
+          if [[ -z "${INVENTORY_ALLOWED:-}" || ( "$INVENTORY_MODE" != REFRESHED && "$INVENTORY_MODE" != DEGRADED ) ]]; then
+            echo "::error::Shared inventory receipt missing"; exit 1
+          fi
+          if ! selection=$(python -P -B -m history_archive.inventory_commit inspect --checkout ../history-code --expected-commit "$INVENTORY_GENERATION" --allowed-indices-json "$INVENTORY_ALLOWED"); then
+            echo "::error::Shared inventory generation is not verified"
+            exit 1
+          fi
+          total=$(printf '%s' "$selection" | jq -er 'select(.state == "VERIFIED") | .source_count | select(type == "number" and . > 0)')
           first="${SOURCE_FIRST:-1}"
           last="${SOURCE_LAST:-0}"
           if [[ "$last" == "0" ]]; then last="$total"; fi
@@ -508,6 +690,16 @@ jobs:
           if [[ ! "${V02_PAUSE_SECONDS:-5}" =~ ^([0-9]|[1-5][0-9]|60)$ ]]; then
             echo '::error::Invalid v0.2 pause seconds (0-60)'; exit 2
           fi
+          # A fixed timestamp is supplied by the trusted dispatch adapter.
+          # Reject conflicts and malformed input before any lane can write.
+          if [[ -n "${RECONCILE_BEFORE:-}" ]]; then
+            if [[ "$RECONCILE_COMPLETE" == 'true' || ! "$RECONCILE_BEFORE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+              echo '::error::Invalid or conflicting reconciliation cutoff'; exit 2
+            fi
+            if ! date -u -d "$RECONCILE_BEFORE" +%s >/dev/null 2>&1; then
+              echo '::error::Invalid reconciliation timestamp'; exit 2
+            fi
+          fi
           # Leave headroom for checkout, verified private writes and cleanup.
           started_at=$(date +%s)
           deadline=$((started_at + 45 * 60))
@@ -519,6 +711,15 @@ jobs:
           declare -A states=() observed=() errors=()
           lanes=(pr-body pr-comment pr-review-body pr-review-comment commit-comment)
           deadline_reached=0
+          # Keep every numeric index; quarantine unavailable names without
+          # changing their branch identity or inferring a completed lane.
+          for index in $(seq "$first" "$last"); do
+            if ! printf '%s' "$selection" | jq -e --argjson i "$index" '.available_indices | index($i) != null' >/dev/null; then
+              for lane in "${lanes[@]}"; do
+                states["$index/$lane"]=UNAVAILABLE
+              done
+            fi
+          done
 
           check_clean() {
             local status dirty
@@ -570,10 +771,14 @@ jobs:
             # Reconcile at most once after a confirmed successful invocation.
             # An unconfirmed failed first attempt must not masquerade as a
             # successful reconciliation of an old COMPLETE generation.
-            if [[ "$RECONCILE_COMPLETE" == 'true' && -z "${observed[$key]:-}" ]]; then
-              args+=(--reconcile-complete)
+            if [[ -z "${observed[$key]:-}" ]]; then
+              if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then
+                args+=(--reconcile-complete)
+              elif [[ -n "${RECONCILE_BEFORE:-}" ]]; then
+                args+=(--reconcile-before "$RECONCILE_BEFORE")
+              fi
             fi
-            if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
+            if summary=$(python -P -B -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
               if ! state=$(printf '%s' "$summary" | jq -er '.state' 2>/dev/null); then
                 echo '::error::Invalid sanitized v0.2 lane summary'; exit 1
               fi
@@ -611,6 +816,7 @@ jobs:
                 key="$index/$lane"
                 case "${states[$key]:-NOT_SCANNED}" in
                   COMPLETE|FAILED) continue ;;
+                  UNAVAILABLE) continue ;;
                 esac
                 run_lane "$index" "$lane" "round-$cycle"
                 if (( deadline_reached )); then break 3; fi
@@ -642,9 +848,11 @@ jobs:
           partial=0
           fail=0
           unattempted=0
+          unavailable=0
           total_lanes=$(( (last - first + 1) * 5 ))
           {
             echo '### Manual F4 v0.2 typed history collection'
+            echo "- Inventory refresh mode: $INVENTORY_MODE"
             echo "- Inventory sources: $total"
             echo "- Requested source range: $first-$last"
             echo "- Max normal rounds: ${MAX_V02_CYCLES:-1}"
@@ -657,6 +865,7 @@ jobs:
                   COMPLETE) complete=$((complete + 1)) ;;
                   ACTIVE) partial=$((partial + 1)); echo "- ACTIVE: $key" ;;
                   FAILED) fail=$((fail + 1)); echo "- FAILED: $key (${errors[$key]})" ;;
+                  UNAVAILABLE) unavailable=$((unavailable + 1)); echo "- UNAVAILABLE: $key" ;;
                   *) unattempted=$((unattempted + 1)); echo "- NOT_ATTEMPTED: $key" ;;
                 esac
               done
@@ -665,6 +874,7 @@ jobs:
             echo "- Active lanes: $partial"
             echo "- Final failed lanes: $fail"
             echo "- Unattempted lanes: $unattempted"
+            echo "- Unavailable lanes: $unavailable"
             if [[ "${{ inputs.manual_v02_only }}" == 'true' ]]; then
               echo '- v0.1 Issue body/comment fleet deliberately skipped for this delta-only dispatch'
             else
@@ -673,6 +883,12 @@ jobs:
             echo '- Partial, failed or unattempted lanes are NOT seven-kind archival acceptance.'
             echo '- Resume from existing private checkpoints; no history or frontier is reset.'
           } >> "$GITHUB_STEP_SUMMARY"
+          if (( unavailable > 0 )); then
+            echo "::error::$unavailable typed source-lanes unavailable in verified inventory"; exit 1
+          fi
           if (( fail > 0 )); then
             echo "::error::$fail typed source-lanes remain failed or unavailable"; exit 1
+          fi
+          if [[ "$INVENTORY_MODE" == DEGRADED ]]; then
+            echo "::warning::Existing sources preserved; inventory refresh remains incomplete."; exit 1
           fi

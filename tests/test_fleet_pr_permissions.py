@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -13,7 +14,7 @@ class FleetPRPermissionContractTests(unittest.TestCase):
     def test_probe_is_opt_in_and_skips_normal_collection(self):
         self.assertIn("      permission_probe:\n", self.text)
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.permission_probe || inputs.review_archive_pilot || inputs.pr_body_pages_pilot || inputs.pr_body_positive_canary || inputs.pr_body_reconciliation) }}", self.text)
-        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}", self.text)
+        self.assertIn("    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only && !inputs.manual_inventory_only) }}", self.text)
 
     def test_private_review_pilot_is_opt_in_and_fails_closed(self):
         self.assertIn("      review_archive_pilot:", self.text)
@@ -38,22 +39,35 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertIn("python -m history_archive.v02_pr_body_pilot", self.text)
         self.assertIn("FLEET_SOURCE_TOKEN: ${{ steps.source-pr-read.outputs.token }}", self.text)
         self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
-        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}", self.text)
+        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only && !inputs.manual_inventory_only) }}", self.text)
         self.assertNotIn("permission-contents: read", self.text)
         self.assertNotIn("permission-pull-requests: write", self.text)
 
     def test_v02_only_is_explicit_and_skips_duplicate_v01_sweep(self):
         self.assertIn("      manual_v02_only:", self.text)
         self.assertIn("        default: false", self.text)
-        self.assertIn("&& !inputs.manual_v02_only)", self.text)
+        self.assertIn("&& !inputs.manual_v02_only && !inputs.manual_inventory_only)", self.text)
         self.assertIn("(inputs.manual_all_seven || inputs.manual_v02_only)", self.text)
         self.assertIn("v0.1 Issue body/comment fleet deliberately skipped", self.text)
 
     def test_source_is_read_only_and_archive_write_stays_separate(self):
-        self.assertEqual(self.text.count("permission-pull-requests: read"), 3)
-        self.assertIn("permission-issues: read", self.text)
-        self.assertNotIn("permission-pull-requests: write", self.text)
-        self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
+        # Check each token's own scope; counting a permission string alone
+        # cannot prove that the source token lacks a write permission.
+        steps = re.split(r"(?m)^      - name: |^  [a-z][a-z0-9-]*:\s*$", self.text)
+        sources = writers = 0
+        for step in steps:
+            if "uses: actions/create-github-app-token@" not in step:
+                continue
+            permissions = set(re.findall(r"(?m)^          (permission-[\w-]+: \w+)$", step))
+            if "permission-pull-requests: read" in permissions:
+                self.assertEqual(permissions, {"permission-issues: read", "permission-pull-requests: read"})
+                sources += 1
+            else:
+                self.assertEqual(permissions, {"permission-contents: write"})
+                self.assertIn("repositories: github-history-archive", step)
+                writers += 1
+        self.assertEqual(sources, 4)
+        self.assertEqual(writers, 5)
         self.assertNotIn("skip-token-revoke: true", self.text)
 
     def test_existing_schedule_and_source_collector_unchanged(self):
