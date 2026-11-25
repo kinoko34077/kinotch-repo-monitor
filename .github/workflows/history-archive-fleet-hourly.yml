@@ -351,6 +351,11 @@ jobs:
                 if [[ "$scan_attempt" -gt 1 ]]; then recovered_count=$((recovered_count + 1)); fi
                 break
               fi
+              # The collector owns local failure classification; do not duplicate it here.
+              if jq -es 'any(.[]; .retryable == false)' "$safe_scan_log" >/dev/null; then
+                echo "::warning::Source index $index reported a non-retryable condition; preserving partial evidence and continuing."
+                break
+              fi
               # The collector already waits when GitHub supplies a bounded reset.
               # If still rate-limited, preserve the source failure and defer its retry.
               if grep -Eq '"error_code":"(graphql_rate_limit|rate_limited(_until_[0-9TZ]+)?)"' "$safe_scan_log"; then
@@ -366,7 +371,7 @@ jobs:
               success_count=$((success_count + 1))
             else
               failures=$((failures + 1))
-              echo "::error::Source index $index could not be scanned after three attempts."
+              echo "::error::Source index $index was not completely scanned."
             fi
             git add -A -- archive/ tracking/ 2>/dev/null || git add -A -- archive/ 2>/dev/null
             if ! git diff --cached --quiet; then
