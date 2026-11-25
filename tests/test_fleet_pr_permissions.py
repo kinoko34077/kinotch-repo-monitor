@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -50,10 +51,23 @@ class FleetPRPermissionContractTests(unittest.TestCase):
         self.assertIn("v0.1 Issue body/comment fleet deliberately skipped", self.text)
 
     def test_source_is_read_only_and_archive_write_stays_separate(self):
-        self.assertEqual(self.text.count("permission-pull-requests: read"), 3)
-        self.assertIn("permission-issues: read", self.text)
-        self.assertNotIn("permission-pull-requests: write", self.text)
-        self.assertIn("repositories: github-history-archive\n          permission-contents: write", self.text)
+        # Check each token's own scope; counting a permission string alone
+        # cannot prove that the source token lacks a write permission.
+        steps = re.split(r"(?m)^      - name: |^  [a-z][a-z0-9-]*:\s*$", self.text)
+        sources = writers = 0
+        for step in steps:
+            if "uses: actions/create-github-app-token@" not in step:
+                continue
+            permissions = set(re.findall(r"(?m)^          (permission-[\w-]+: \w+)$", step))
+            if "permission-pull-requests: read" in permissions:
+                self.assertEqual(permissions, {"permission-issues: read", "permission-pull-requests: read"})
+                sources += 1
+            else:
+                self.assertEqual(permissions, {"permission-contents: write"})
+                self.assertIn("repositories: github-history-archive", step)
+                writers += 1
+        self.assertEqual(sources, 4)
+        self.assertEqual(writers, 5)
         self.assertNotIn("skip-token-revoke: true", self.text)
 
     def test_existing_schedule_and_source_collector_unchanged(self):

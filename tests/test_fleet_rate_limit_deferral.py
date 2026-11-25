@@ -40,7 +40,8 @@ class FleetRateLimitDeferralTests(unittest.TestCase):
         self.assertIn('"$safe_scan_log"; then\n                echo "::warning::Source index', text)
         self.assertIn('break\n              fi\n              echo "::warning::Source index', text)
         self.assertIn('failures=$((failures + 1))', text)
-        self.assertIn('echo "::error::$failures sources were not completely scanned."', text)
+        self.assertIn('if (( failures + unavailable_count > 0 )); then', text)
+        self.assertIn('echo "::error::$((failures + unavailable_count)) sources were not completely scanned."', text)
 
     def test_source_scope_and_credentials_are_unchanged(self):
         text = self.text
