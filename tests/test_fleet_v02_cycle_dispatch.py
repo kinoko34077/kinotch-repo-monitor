@@ -37,7 +37,7 @@ class V02CycleDispatchTests(unittest.TestCase):
 
     def test_public_runner_does_not_execute_duplicate_v01_fleet(self):
         s = self.workflow
-        self.assertIn('&& !inputs.manual_v02_only)', s)
+        self.assertIn('&& !inputs.manual_v02_only && !inputs.manual_inventory_only)', s)
         self.assertIn('(inputs.manual_all_seven || inputs.manual_v02_only)', s)
         self.assertIn('manual_v02_only:', s)
         self.assertIn('permission-pull-requests: read', s)
