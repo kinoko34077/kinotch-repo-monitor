@@ -71,6 +71,11 @@ on:
         type: boolean
         required: false
         default: false
+      manual_inventory_only:
+        description: 'Refresh the shared inventory without starting either collector'
+        type: boolean
+        required: false
+        default: false
       manual_reconcile_before:
         description: 'Optional UTC cutoff: revisit only older completed v0.2 lanes'
         type: string
@@ -343,9 +348,12 @@ jobs:
             echo "allowed_indices=$allowed"
             echo "mode=$mode"
           } >> "$GITHUB_OUTPUT"
+          if [[ "$mode" == DEGRADED && "${{ inputs.manual_inventory_only }}" == true ]]; then
+            echo "::warning::Inventory-only refresh remains incomplete."; exit 1
+          fi
 
   archive-fleet:
-    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation && !inputs.manual_v02_only && !inputs.manual_inventory_only) }}
     needs: inventory-refresh
     runs-on: ubuntu-latest
     timeout-minutes: 50
@@ -578,7 +586,7 @@ jobs:
           fi
 
   archive-v02-manual:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.manual_all_seven || inputs.manual_v02_only) && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.manual_all_seven || inputs.manual_v02_only) && !inputs.manual_inventory_only && !inputs.permission_probe && !inputs.review_archive_pilot && !inputs.pr_body_pages_pilot && !inputs.pr_body_positive_canary && !inputs.pr_body_reconciliation }}
     needs: inventory-refresh
     runs-on: ubuntu-latest
     timeout-minutes: 55

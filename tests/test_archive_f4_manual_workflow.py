@@ -15,6 +15,7 @@ class ManualSevenKindWorkflowTests(unittest.TestCase):
         self.assertIn('cron: "11 * * * *"', self.content)
         self.assertIn('cron: "37 4 * * *"', self.content)
         self.assertIn("manual_all_seven:", self.content)
+        self.assertIn("manual_inventory_only:", self.content)
         self.assertIn("manual_reconcile_complete:", self.content)
         self.assertIn("manual_v02_pages:", self.content)
         self.assertIn('"$' + '{{ inputs.manual_all_seven }}" == "true"', self.content)
@@ -281,7 +282,9 @@ class SharedInventoryGenerationTests(unittest.TestCase):
         self.assertIn("permission-issues: read", refresh)
         self.assertIn("repositories: github-history-archive", refresh)
         self.assertIn("permission-contents: write", refresh)
+        self.assertIn("Inventory-only refresh remains incomplete", refresh)
         for job in (fleet, typed):
+            self.assertIn("!inputs.manual_inventory_only", job.splitlines()[0])
             self.assertIn("needs: inventory-refresh", job)
             self.assertIn("ref: ${{ needs.inventory-refresh.outputs.generation }}", job)
             self.assertIn("history_archive.inventory_commit inspect", job)
