@@ -45,7 +45,7 @@ class ManualSevenKindWorkflowTests(unittest.TestCase):
 
 class ManualSchedulerBehaviorTests(unittest.TestCase):
     """Execute the real workflow shell against a deterministic fake collector."""
-    def run_case(self, case, *, reconcile=False):
+    def run_case(self, case, *, reconcile=False, cutoff=""):
         import os
         import shutil
         import subprocess
@@ -92,6 +92,7 @@ python() {
             --source-index) index="$2"; shift ;;
             --lane) lane="$2"; shift ;;
             --reconcile-complete) reconcile=yes ;;
+            --reconcile-before) reconcile="$2"; shift ;;
         esac
         shift
     done
@@ -132,6 +133,7 @@ python() {
                        MAX_V02_PAGES="2", MAX_V02_CYCLES="2",
                        V02_PAUSE_SECONDS="0",
                        RECONCILE_COMPLETE=str(reconcile).lower(),
+                       RECONCILE_BEFORE=cutoff,
                        INVENTORY_GENERATION="a" * 40,
                        GITHUB_STEP_SUMMARY=str(summary), CALLS=str(calls),
                        DIRTY=str(root / "dirty"), UNPUSHED=str(root / "unpushed"), CASE=case)
@@ -211,6 +213,23 @@ python() {
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(calls, ["1/pr-body no"])
         self.assertIn("Global collector configuration failure", proc.stdout)
+
+    def test_cutoff_is_forwarded_only_until_confirmed_lane_progress(self):
+        cutoff = "2026-11-24T00:00:00Z"
+        proc, calls, report = self.run_case("recover", cutoff=cutoff)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("2/pr-comment " + cutoff, calls)
+        self.assertIn("2/pr-comment no", calls)
+        self.assertEqual(calls.count("1/pr-body " + cutoff), 2)
+        self.assertIn("Complete lanes: 15/15", report)
+
+    def test_cutoff_conflict_or_invalid_value_refuses_all_collectors(self):
+        for reconcile, cutoff in ((True, "2026-11-24T00:00:00Z"), (False, "not-a-timestamp")):
+            with self.subTest(reconcile=reconcile, cutoff=cutoff):
+                proc, calls, _ = self.run_case("recover", reconcile=reconcile, cutoff=cutoff)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(calls, [])
+                self.assertIn("Invalid or conflicting reconciliation cutoff", proc.stdout)
 
     def test_unavailable_inventory_source_keeps_original_indices(self):
         proc, calls, report = self.run_case("unavailable")

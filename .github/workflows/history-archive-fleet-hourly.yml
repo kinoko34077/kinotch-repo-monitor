@@ -71,6 +71,11 @@ on:
         type: boolean
         required: false
         default: false
+      manual_reconcile_before:
+        description: 'Optional UTC cutoff: revisit only older completed v0.2 lanes'
+        type: string
+        required: false
+        default: ''
       full_collection:
         description: 'Collect all accessible Issue/comment edits, ignoring hourly 80-edit threshold'
         type: boolean
@@ -567,6 +572,7 @@ jobs:
           MAX_V02_CYCLES: ${{ inputs.manual_v02_cycles }}
           V02_PAUSE_SECONDS: ${{ inputs.manual_v02_pause_seconds }}
           RECONCILE_COMPLETE: ${{ inputs.manual_reconcile_complete }}
+          RECONCILE_BEFORE: ${{ inputs.manual_reconcile_before }}
           INVENTORY_GENERATION: ${{ needs.inventory-refresh.outputs.generation }}
         run: |
           set -euo pipefail
@@ -591,6 +597,16 @@ jobs:
           fi
           if [[ ! "${V02_PAUSE_SECONDS:-5}" =~ ^([0-9]|[1-5][0-9]|60)$ ]]; then
             echo '::error::Invalid v0.2 pause seconds (0-60)'; exit 2
+          fi
+          # A fixed timestamp is supplied by the trusted dispatch adapter.
+          # Reject conflicts and malformed input before any lane can write.
+          if [[ -n "${RECONCILE_BEFORE:-}" ]]; then
+            if [[ "$RECONCILE_COMPLETE" == 'true' || ! "$RECONCILE_BEFORE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+              echo '::error::Invalid or conflicting reconciliation cutoff'; exit 2
+            fi
+            if ! date -u -d "$RECONCILE_BEFORE" +%s >/dev/null 2>&1; then
+              echo '::error::Invalid reconciliation timestamp'; exit 2
+            fi
           fi
           # Leave headroom for checkout, verified private writes and cleanup.
           started_at=$(date +%s)
@@ -663,8 +679,12 @@ jobs:
             # Reconcile at most once after a confirmed successful invocation.
             # An unconfirmed failed first attempt must not masquerade as a
             # successful reconciliation of an old COMPLETE generation.
-            if [[ "$RECONCILE_COMPLETE" == 'true' && -z "${observed[$key]:-}" ]]; then
-              args+=(--reconcile-complete)
+            if [[ -z "${observed[$key]:-}" ]]; then
+              if [[ "$RECONCILE_COMPLETE" == 'true' ]]; then
+                args+=(--reconcile-complete)
+              elif [[ -n "${RECONCILE_BEFORE:-}" ]]; then
+                args+=(--reconcile-before "$RECONCILE_BEFORE")
+              fi
             fi
             if summary=$(python -m history_archive.v02_manual_fleet "${args[@]}" 2>&1); then
               if ! state=$(printf '%s' "$summary" | jq -er '.state' 2>/dev/null); then
