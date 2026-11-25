@@ -45,7 +45,7 @@ class ManualSevenKindWorkflowTests(unittest.TestCase):
 
 class ManualSchedulerBehaviorTests(unittest.TestCase):
     """Execute the real workflow shell against a deterministic fake collector."""
-    def run_case(self, case, *, reconcile=False, cutoff=""):
+    def run_case(self, case, *, reconcile=False, cutoff="", inventory_mode="REFRESHED"):
         import os
         import shutil
         import subprocess
@@ -62,6 +62,12 @@ class ManualSchedulerBehaviorTests(unittest.TestCase):
             "\x24{{ inputs.manual_v02_only }}", "true")
         prelude = r'''
 git() {
+    if [[ "$1" == -C ]]; then
+        if [[ "$3" == rev-parse ]]; then
+            if [[ "$CASE" == untrusted-code ]]; then echo wrong; else echo "$ARCHIVE_COLLECTOR_REF"; fi
+        fi
+        return 0
+    fi
     if [[ "$1" == status ]]; then
         if [[ -f "$DIRTY" ]]; then echo ' M tracking/example.json'; fi
     elif [[ "$1" == rev-parse ]]; then
@@ -135,6 +141,8 @@ python() {
                        RECONCILE_COMPLETE=str(reconcile).lower(),
                        RECONCILE_BEFORE=cutoff,
                        INVENTORY_GENERATION="a" * 40,
+                       INVENTORY_ALLOWED="[1,2,3]", INVENTORY_MODE=inventory_mode,
+                       ARCHIVE_COLLECTOR_REF="b" * 40,
                        GITHUB_STEP_SUMMARY=str(summary), CALLS=str(calls),
                        DIRTY=str(root / "dirty"), UNPUSHED=str(root / "unpushed"), CASE=case)
             # Use a file rather than a large Windows bash -c argument.
@@ -239,6 +247,19 @@ python() {
         self.assertIn("Unavailable lanes: 5", report)
         self.assertIn("Complete lanes: 10/15", report)
 
+    def test_degraded_inventory_continues_but_not_success(self):
+        proc, calls, report = self.run_case("recover", inventory_mode="DEGRADED")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("3/commit-comment no", calls)
+        self.assertIn("Complete lanes: 15/15", report)
+        self.assertIn("Inventory refresh mode: DEGRADED", report)
+
+    def test_untrusted_code_refuses_all_collectors(self):
+        proc, calls, _ = self.run_case("untrusted-code")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(calls, [])
+        self.assertIn("Reviewed collector checkout is not verified", proc.stdout)
+
     def test_unverified_inventory_refuses_all_collectors(self):
         proc, calls, _ = self.run_case("stale-inventory")
         self.assertNotEqual(proc.returncode, 0)
@@ -253,6 +274,9 @@ class SharedInventoryGenerationTests(unittest.TestCase):
         fleet = content.split("\n  archive-fleet:\n", 1)[1].split("\n  archive-v02-manual:\n", 1)[0]
         typed = content.split("\n  archive-v02-manual:\n", 1)[1]
         self.assertEqual(content.count("history_archive.inventory_commit refresh"), 1)
+        self.assertEqual(content.count("history_archive.inventory_commit recover"), 1)
+        self.assertIn("ref: ${{ env.ARCHIVE_COLLECTOR_REF }}", refresh)
+        self.assertIn("python -P -B -m history_archive.inventory_commit recover", refresh)
         self.assertIn("github.ref == 'refs/heads/main'", refresh)
         self.assertIn("permission-issues: read", refresh)
         self.assertIn("repositories: github-history-archive", refresh)
@@ -261,6 +285,9 @@ class SharedInventoryGenerationTests(unittest.TestCase):
             self.assertIn("needs: inventory-refresh", job)
             self.assertIn("ref: ${{ needs.inventory-refresh.outputs.generation }}", job)
             self.assertIn("history_archive.inventory_commit inspect", job)
+            self.assertIn("ref: ${{ env.ARCHIVE_COLLECTOR_REF }}", job)
+            self.assertIn("python -P -B -m history_archive.inventory_commit inspect", job)
+            self.assertIn("--allowed-indices-json", job)
             self.assertIn("available_indices | index($i)", job)
             self.assertIn("persist-credentials: false", job)
         self.assertIn('--sources "$inventory"', fleet)
